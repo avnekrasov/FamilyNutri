@@ -369,6 +369,44 @@ body {
   color: var(--unhealthy);
   animation: pulse-rec 1s ease-in-out infinite;
 }
+
+/* ── FEEDBACK SCREEN ── */
+.feedback-praise {
+  text-align: center; padding: 24px 0 10px;
+}
+.feedback-praise .fb-emoji { font-size: 64px; display: block; margin-bottom: 10px; }
+.feedback-praise .fb-text {
+  font-size: 18px; font-weight: 700; color: var(--text);
+  line-height: 1.4;
+}
+.feedback-day-summary {
+  background: linear-gradient(135deg, #667EEA, #764BA2);
+  color: white; border-radius: var(--radius); padding: 18px;
+  margin: 16px 0;
+}
+.fb-progress-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.fb-progress-row:last-child { margin-bottom: 0; }
+.fb-progress-label { font-size: 12px; opacity: 0.85; width: 70px; }
+.fb-progress-bar {
+  flex: 1; height: 10px; background: rgba(255,255,255,0.2);
+  border-radius: 5px; overflow: hidden;
+}
+.fb-progress-fill {
+  height: 100%; border-radius: 5px; width: 0%;
+  transition: width 0.8s cubic-bezier(.4,0,.2,1);
+}
+.fb-progress-val { font-size: 12px; font-weight: 700; width: 60px; text-align: right; }
+.feedback-plan {
+  background: var(--card); border-radius: var(--radius);
+  padding: 18px; margin-bottom: 14px;
+  box-shadow: var(--shadow);
+}
+.feedback-plan h3 { font-size: 15px; font-weight: 800; margin-bottom: 10px; }
+.feedback-plan .plan-text {
+  font-size: 14px; line-height: 1.6; color: var(--text);
+}
 </style>
 </head>
 <body>
@@ -538,6 +576,65 @@ body {
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SCREEN: FEEDBACK (NEW)
+══════════════════════════════════════════ -->
+<div id="screen-feedback" class="screen">
+  <div class="header" style="background:linear-gradient(135deg,#2ECC71,#27AE60)">
+    <h1 style="font-size:20px">🎉 Записано!</h1>
+    <div class="subtitle" id="fb-subtitle">Отличная работа</div>
+  </div>
+
+  <div class="content padded-bottom">
+    <div class="feedback-praise">
+      <span class="fb-emoji" id="fb-emoji">🌟</span>
+      <div class="fb-text" id="fb-praise-text">Молодец!</div>
+    </div>
+
+    <div class="feedback-day-summary">
+      <div style="font-size:12px;opacity:0.8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">
+        Баланс за сегодня
+      </div>
+      <div class="fb-progress-row">
+        <div class="fb-progress-label">🔥 Калории</div>
+        <div class="fb-progress-bar">
+          <div class="fb-progress-fill" id="fb-cal-bar" style="background:#FF6B6B"></div>
+        </div>
+        <div class="fb-progress-val" id="fb-cal-text">0/2000</div>
+      </div>
+      <div class="fb-progress-row">
+        <div class="fb-progress-label">🥩 Белки</div>
+        <div class="fb-progress-bar">
+          <div class="fb-progress-fill" id="fb-p-bar" style="background:#4ECDC4"></div>
+        </div>
+        <div class="fb-progress-val" id="fb-p-text">0г</div>
+      </div>
+      <div class="fb-progress-row">
+        <div class="fb-progress-label">🧈 Жиры</div>
+        <div class="fb-progress-bar">
+          <div class="fb-progress-fill" id="fb-f-bar" style="background:#F39C12"></div>
+        </div>
+        <div class="fb-progress-val" id="fb-f-text">0г</div>
+      </div>
+      <div class="fb-progress-row">
+        <div class="fb-progress-label">🍞 Углеводы</div>
+        <div class="fb-progress-bar">
+          <div class="fb-progress-fill" id="fb-c-bar" style="background:#9B59B6"></div>
+        </div>
+        <div class="fb-progress-val" id="fb-c-text">0г</div>
+      </div>
+    </div>
+
+    <div class="feedback-plan" id="fb-plan-card">
+      <h3>💡 Совет на оставшийся день</h3>
+      <div class="plan-text" id="fb-plan-text">Думаю...</div>
+    </div>
+
+    <button class="btn btn-primary" onclick="nav('main')">🏠 На главную</button>
+    <button class="btn btn-ghost" onclick="triggerCamera()">📸 Записать ещё</button>
   </div>
 </div>
 
@@ -1359,6 +1456,89 @@ async function autoSaveFromConfirm() {
 
   S.lastSavedEntry = entry;
   showFeedback(entry);
+}
+
+// ──────────────────────────────────────────
+// FEEDBACK SCREEN
+// ──────────────────────────────────────────
+const DAILY_NORMS = { cal: 2000, p: 60, f: 65, c: 260 };
+
+const PRAISES = {
+  green: [
+    { emoji: '🌟', text: (n) => `Супер! ${n} — отличный выбор!` },
+    { emoji: '💪', text: (n) => `Здорово! ${n} — это полезно!` },
+    { emoji: '🥇', text: (n) => `Молодец! Полезная еда — залог здоровья!` },
+  ],
+  yellow: [
+    { emoji: '👍', text: (n) => `Хорошо! ${n} записано.` },
+    { emoji: '😊', text: (n) => `Неплохо! Попробуй добавить овощей в следующий раз.` },
+  ],
+  red: [
+    { emoji: '😋', text: (n) => `${n} — вкусно! Но в следующий раз выбери что-то полезнее.` },
+    { emoji: '🍎', text: (n) => `Иногда можно! Главное — баланс.` },
+  ],
+};
+
+function showFeedback(entry) {
+  showScreen('feedback');
+
+  // Praise
+  const color = entry.healthColor || 'yellow';
+  const list = PRAISES[color] || PRAISES.yellow;
+  const praise = list[Math.floor(Math.random() * list.length)];
+  $('fb-emoji').textContent = praise.emoji;
+  $('fb-praise-text').textContent = praise.text(entry.dishName);
+  $('fb-subtitle').textContent = `${entry.dishName} записано`;
+
+  // Day balance
+  const entries = todayEntries();
+  const t = totals(entries);
+
+  const setBar = (barId, textId, current, norm, unit) => {
+    const pct = Math.min(Math.round(current / norm * 100), 100);
+    setTimeout(() => { $(barId).style.width = pct + '%'; }, 100);
+    $(textId).textContent = `${current}/${norm}${unit}`;
+  };
+  setBar('fb-cal-bar', 'fb-cal-text', t.cal, DAILY_NORMS.cal, '');
+  setBar('fb-p-bar', 'fb-p-text', t.p, DAILY_NORMS.p, 'г');
+  setBar('fb-f-bar', 'fb-f-text', t.f, DAILY_NORMS.f, 'г');
+  setBar('fb-c-bar', 'fb-c-text', t.c, DAILY_NORMS.c, 'г');
+
+  // Voice praise
+  setTimeout(() => speak(praise.text(entry.dishName)), 400);
+
+  // Async plan from AI
+  $('fb-plan-text').textContent = 'Думаю...';
+  generateDayPlan(t, entries.length);
+}
+
+async function generateDayPlan(dayTotals, mealCount) {
+  try {
+    const remaining = {
+      cal: Math.max(DAILY_NORMS.cal - dayTotals.cal, 0),
+      p: Math.max(DAILY_NORMS.p - dayTotals.p, 0),
+    };
+    const h = new Date().getHours();
+    const timeOfDay = h < 12 ? 'утро' : h < 17 ? 'день' : 'вечер';
+    const overNorm = dayTotals.cal > DAILY_NORMS.cal;
+
+    const prompt = `Ты добрый диетолог для ребёнка. Сейчас ${timeOfDay}. Съедено ${mealCount} приёмов пищи, всего ${dayTotals.cal} ккал из ${DAILY_NORMS.cal}.
+${overNorm ? 'Норма превышена. НЕ ругай, мягко предложи прогулку.' : `Осталось ${remaining.cal} ккал, белков осталось ${remaining.p}г.`}
+Дай КРАТКИЙ дружелюбный совет (2-3 предложения) на оставшийся день. Говори на "ты". НИКОГДА не ругай. Только текст, без JSON, без markdown.`;
+
+    const text = await geminiRequest(prompt);
+    $('fb-plan-text').textContent = text;
+  } catch {
+    // Fallback — simple local tips
+    const remaining = DAILY_NORMS.cal - dayTotals.cal;
+    if (remaining > 400) {
+      $('fb-plan-text').textContent = `У тебя ещё ${remaining} ккал на сегодня. Не забудь попить воды и съесть что-то полезное!`;
+    } else if (remaining > 0) {
+      $('fb-plan-text').textContent = 'Почти норма! Можешь перекусить фруктами или овощами.';
+    } else {
+      $('fb-plan-text').textContent = 'Норма набрана! Погуляй или сделай зарядку — это поможет усвоению.';
+    }
+  }
 }
 
 // ──────────────────────────────────────────
