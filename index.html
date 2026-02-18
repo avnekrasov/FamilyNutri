@@ -407,6 +407,29 @@ body {
 .feedback-plan .plan-text {
   font-size: 14px; line-height: 1.6; color: var(--text);
 }
+
+/* ── VOICE FOOD BUTTON ── */
+.voice-food-btn {
+  width: 120px; height: 120px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--secondary), #45B7AA);
+  border: none; color: white; font-size: 44px; cursor: pointer;
+  box-shadow: 0 8px 30px rgba(78,205,196,0.4);
+  transition: transform 0.15s, box-shadow 0.15s;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto; position: relative;
+}
+.voice-food-btn:active { transform: scale(0.91); box-shadow: 0 4px 16px rgba(78,205,196,0.3); }
+.voice-food-btn.recording {
+  animation: pulse-rec 1s ease-in-out infinite;
+  background: linear-gradient(135deg, var(--unhealthy), #C0392B);
+  box-shadow: 0 8px 30px rgba(231,76,60,0.4);
+}
+.or-divider {
+  display: flex; align-items: center; gap: 14px;
+  justify-content: center; margin: 20px 0 16px;
+}
+.or-divider .line { height: 1px; flex: 1; max-width: 60px; background: var(--border); }
+.or-divider span { font-size: 12px; color: var(--text-muted); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -480,9 +503,18 @@ body {
     </div>
 
     <div style="text-align:center;padding:16px 0 24px">
-      <p style="color:var(--text-muted);margin-bottom:14px;font-size:15px;font-weight:600">Хочешь что-то съесть?</p>
+      <p style="color:var(--text-muted);margin-bottom:14px;font-size:15px;font-weight:600">Хочешь что-то записать?</p>
       <button class="camera-btn" onclick="triggerCamera()">📸</button>
-      <p style="color:var(--text-muted);margin-top:14px;font-size:13px">Нажми и сфотографируй еду</p>
+      <p style="color:var(--text-muted);margin-top:10px;font-size:13px">Сфотографируй еду</p>
+
+      <div class="or-divider">
+        <div class="line"></div>
+        <span>ИЛИ</span>
+        <div class="line"></div>
+      </div>
+
+      <button class="voice-food-btn" id="voice-food-btn" onclick="startVoiceFood()">🎤</button>
+      <p style="color:var(--text-muted);margin-top:10px;font-size:13px">Скажи голосом что ты ел</p>
     </div>
 
     <div id="main-meals-preview"></div>
@@ -1456,6 +1488,54 @@ async function autoSaveFromConfirm() {
 
   S.lastSavedEntry = entry;
   showFeedback(entry);
+}
+
+// ──────────────────────────────────────────
+// VOICE FOOD INPUT (without photo)
+// ──────────────────────────────────────────
+function startVoiceFood() {
+  const btn = $('voice-food-btn');
+  if (STT.active) { stopVoiceInput(); return; }
+
+  if (!STT.supported) {
+    // Fallback: text prompt
+    const text = prompt('Опиши что ты съел:');
+    if (text && text.trim()) analyzeVoiceFood(text.trim());
+    return;
+  }
+
+  startVoiceInput((text) => {
+    if (text && text.trim()) {
+      toast(`Услышал: "${text}"`);
+      analyzeVoiceFood(text.trim());
+    }
+  }, btn);
+}
+
+async function analyzeVoiceFood(description) {
+  showScreen('loading');
+  S.capturedImg = null; // no photo for voice input
+
+  try {
+    const prompt = `Ты диетолог-помощник для детей. Пользователь описал еду голосом: "${description}".
+Оцени БЖУ и калории для стандартной порции.
+Ответь ТОЛЬКО JSON без markdown:
+{"dish_name":"название на русском","portion":"примерная порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 дружелюбных предложения","question":"уточняющий вопрос если нужно"}
+
+Правила health_color: green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки, молочные. yellow — крупы, картофель, выпечка, полуфабрикаты. red — конфеты, фастфуд, газировка, чипсы.`;
+
+    const text = await geminiRequest(prompt);
+    const result = parseAIJson(text);
+
+    S.analysisResult = result;
+    fillConfirmScreen(result, null);   // no image
+    fillResultScreen(result, null);    // pre-fill edit screen
+    showScreen('confirm');
+    setTimeout(() => speak(`Я понял: ${result.dish_name}. Это правильно?`), 500);
+  } catch(err) {
+    showScreen('main');
+    toast('Ошибка: ' + (err.message || '').slice(0, 60));
+  }
 }
 
 // ──────────────────────────────────────────
