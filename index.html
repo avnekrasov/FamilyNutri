@@ -355,6 +355,13 @@ body {
           → Google AI Studio → Get API key → Create API key
         </p>
       </div>
+      <div class="form-group">
+        <label>Тарифный план</label>
+        <select id="setup-gemini-plan">
+          <option value="free">Бесплатный (есть лимиты)</option>
+          <option value="paid">Платный (без лимитов)</option>
+        </select>
+      </div>
       <button class="btn btn-primary" onclick="saveSetup()">🚀 Начать!</button>
     </div>
 
@@ -583,14 +590,6 @@ body {
       </div>
 
       <div class="form-group">
-        <label>AI провайдер</label>
-        <select id="settings-provider" onchange="onProviderChange()">
-          <option value="gemini">Google Gemini (aistudio.google.com)</option>
-          <option value="deepseek">DeepSeek (platform.deepseek.com)</option>
-        </select>
-      </div>
-
-      <div id="gemini-key-group" class="form-group">
         <label>API ключ Gemini</label>
         <input type="password" id="settings-key" placeholder="AIza...">
         <p style="font-size:11px;color:var(--text-muted);margin-top:6px">
@@ -598,11 +597,15 @@ body {
         </p>
       </div>
 
-      <div id="deepseek-key-group" class="form-group hidden">
-        <label>API ключ DeepSeek</label>
-        <input type="password" id="settings-ds-key" placeholder="sk-...">
+      <div class="form-group">
+        <label>Тарифный план Gemini</label>
+        <select id="settings-gemini-plan">
+          <option value="free">Бесплатный (пауза 5 сек)</option>
+          <option value="paid">Платный (без лимитов)</option>
+        </select>
         <p style="font-size:11px;color:var(--text-muted);margin-top:6px">
-          Получи ключ: <a href="https://platform.deepseek.com/api_keys" class="api-link" target="_blank">platform.deepseek.com</a>
+          Бесплатный: пауза между запросами, ожидание при лимите<br>
+          Платный: мгновенные запросы, быстрый повтор при ошибке
         </p>
       </div>
 
@@ -655,25 +658,24 @@ body {
 // ──────────────────────────────────────────
 const S = {
   apiKey: '',
-  dsKey: '',
-  provider: 'gemini',  // 'gemini' | 'deepseek'
+  geminiPlan: 'free',    // 'free' | 'paid'
   childName: '',
   diaryDate: new Date(),
   capturedImg: null,
   analysisResult: null,
+  lastSavedEntry: null,
   reportText: '',
+  lastGeminiCall: 0,     // timestamp for rate limiting
 };
 
 // ──────────────────────────────────────────
 // INIT
 // ──────────────────────────────────────────
 function init() {
-  S.apiKey    = ls('gemini_key') || '';
-  S.dsKey     = ls('ds_key')     || '';
-  S.provider  = ls('ai_provider') || 'gemini';
-  S.childName = ls('child_name') || '';
-  const hasKey = S.provider === 'deepseek' ? S.dsKey : S.apiKey;
-  if (!hasKey || !S.childName) {
+  S.apiKey     = ls('gemini_key') || '';
+  S.geminiPlan = ls('gemini_plan') || 'free';
+  S.childName  = ls('child_name') || '';
+  if (!S.apiKey || !S.childName) {
     showScreen('setup');
   } else {
     showScreen('main');
@@ -696,11 +698,9 @@ function nav(id) {
   if (id === 'diary')  { S.diaryDate = new Date(); renderDiary(); }
   if (id === 'stats')    renderStats();
   if (id === 'settings') {
-    $('settings-name').value     = S.childName;
-    $('settings-key').value      = S.apiKey;
-    $('settings-ds-key').value   = S.dsKey;
-    $('settings-provider').value = S.provider;
-    onProviderChange();
+    $('settings-name').value        = S.childName;
+    $('settings-key').value         = S.apiKey;
+    $('settings-gemini-plan').value = S.geminiPlan;
     $('report-area').classList.add('hidden');
     $('key-test-result').style.display = 'none';
   }
@@ -712,32 +712,27 @@ function nav(id) {
 function saveSetup() {
   const name = $('setup-name').value.trim();
   const key  = $('setup-key').value.trim();
+  const plan = $('setup-gemini-plan')?.value || 'free';
   if (!name) { toast('Введи своё имя 👋'); return; }
   if (!key)  { toast('Нужен API ключ для анализа фото'); return; }
   ls('child_name', name);
   ls('gemini_key', key);
-  S.childName = name;
-  S.apiKey    = key;
+  ls('gemini_plan', plan);
+  S.childName  = name;
+  S.apiKey     = key;
+  S.geminiPlan = plan;
   showScreen('main');
   refreshMain();
   setTimeout(() => speak(`Привет, ${name}! Добро пожаловать в дневник питания!`), 400);
 }
 
-function onProviderChange() {
-  const p = $('settings-provider').value;
-  $('gemini-key-group').classList.toggle('hidden',   p !== 'gemini');
-  $('deepseek-key-group').classList.toggle('hidden', p !== 'deepseek');
-}
-
 function updateSettings() {
   const name = $('settings-name').value.trim();
-  const prov = $('settings-provider').value;
   const key  = $('settings-key').value.trim();
-  const dsKey= $('settings-ds-key').value.trim();
-  if (name)  { ls('child_name', name);   S.childName = name; }
-  if (prov)  { ls('ai_provider', prov);  S.provider  = prov; }
-  if (key)   { ls('gemini_key', key);    S.apiKey    = key;  }
-  if (dsKey) { ls('ds_key', dsKey);      S.dsKey     = dsKey; }
+  const plan = $('settings-gemini-plan').value;
+  if (name) { ls('child_name', name);   S.childName  = name; }
+  if (key)  { ls('gemini_key', key);    S.apiKey     = key;  }
+  if (plan) { ls('gemini_plan', plan);  S.geminiPlan = plan; }
   _cachedModel = null; // reset cached model on key change
   toast('Настройки сохранены ✅');
 }
@@ -895,67 +890,66 @@ async function findWorkingModel(key) {
 }
 
 // ──────────────────────────────────────────
-// DEEPSEEK AI ANALYSIS
+// GEMINI API WRAPPER (rate-limited)
 // ──────────────────────────────────────────
-async function analyzeFoodDeepSeek(imgDataUrl) {
-  const base64   = imgDataUrl.split(',')[1];
-  const mimeType = imgDataUrl.split(';')[0].split(':')[1];
+async function geminiRequest(prompt, imageBase64) {
+  // Rate limiting for free plan
+  if (S.geminiPlan === 'free' && S.lastGeminiCall > 0) {
+    const elapsed = Date.now() - S.lastGeminiCall;
+    if (elapsed < 5000) {
+      await new Promise(r => setTimeout(r, 5000 - elapsed));
+    }
+  }
 
-  const prompt = `Ты диетолог-помощник для детей. Проанализируй фото еды.
-Ответь ТОЛЬКО JSON-объектом без markdown, без лишнего текста.
+  const model = await findWorkingModel(S.apiKey);
+  const parts = [{ text: prompt }];
 
-{
-  "dish_name": "название блюда на русском",
-  "portion": "описание порции (например: 1 тарелка ~300г)",
-  "emoji": "подходящий эмодзи",
-  "calories": целое число ккал,
-  "proteins": целое число граммов белков,
-  "fats": целое число граммов жиров,
-  "carbs": целое число граммов углеводов,
-  "health_score": целое число от 1 до 10,
-  "health_color": "green" или "yellow" или "red",
-  "health_comment": "2-3 предложения для ребёнка о пользе или вреде этого блюда",
-  "question": "уточняющий вопрос о порции или добавках"
+  if (imageBase64) {
+    const raw      = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+    const mimeType = imageBase64.includes(';') ? imageBase64.split(';')[0].split(':')[1] : 'image/jpeg';
+    parts.push({ inline_data: { mime_type: mimeType, data: raw } });
+  }
+
+  const doRequest = async (retried) => {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${S.apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 600 }
+        })
+      }
+    );
+    S.lastGeminiCall = Date.now();
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      if (resp.status === 429 && !retried) {
+        const wait = S.geminiPlan === 'free' ? 60000 : 2000;
+        toast(S.geminiPlan === 'free' ? '⏳ Лимит запросов, подожди...' : '⏳ Повторяю запрос...');
+        await new Promise(r => setTimeout(r, wait));
+        return doRequest(true);
+      }
+      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    let text = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    return text;
+  };
+
+  return doRequest(false);
 }
 
-Правила health_color:
-green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки
-yellow — крупы, картофель, выпечка, умеренно обработанные
-red — конфеты, торты, газировка, чипсы, фастфуд`;
-
-  const resp = await fetch('https://api.deepseek.com/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${S.dsKey}`
-    },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text',      text: prompt },
-          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } }
-        ]
-      }],
-      max_tokens: 600,
-      temperature: 0.3,
-    })
-  });
-
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error?.message || `DeepSeek HTTP ${resp.status}`);
-  }
-  const data = await resp.json();
-  let text = (data.choices?.[0]?.message?.content || '').trim();
-  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-  try {
-    return JSON.parse(text);
-  } catch {
+function parseAIJson(text) {
+  try { return JSON.parse(text); }
+  catch {
     const m = text.match(/\{[\s\S]*\}/);
     if (m) return JSON.parse(m[0]);
-    throw new Error('DeepSeek вернул некорректный JSON');
+    throw new Error('Не удалось разобрать ответ AI');
   }
 }
 
@@ -963,11 +957,6 @@ red — конфеты, торты, газировка, чипсы, фастфу
 // GEMINI AI ANALYSIS
 // ──────────────────────────────────────────
 async function analyzeFood(imgDataUrl) {
-  if (S.provider === 'deepseek') return analyzeFoodDeepSeek(imgDataUrl);
-
-  const base64   = imgDataUrl.split(',')[1];
-  const mimeType = imgDataUrl.split(';')[0].split(':')[1];
-
   const prompt = `Ты диетолог-помощник для детей. Проанализируй фото еды.
 Ответь ТОЛЬКО JSON-объектом без markdown, без лишнего текста.
 
@@ -990,48 +979,20 @@ green — овощи, фрукты, бобовые, цельнозерновые
 yellow — крупы, картофель, умеренно обработанные, выпечка, полуфабрикаты
 red — конфеты, торты, газировка, чипсы, фастфуд, жареное во фритюре`;
 
-  // Auto-discover working model, then call it
-  const model = await findWorkingModel(S.apiKey);
-
-  const resp = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${S.apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType, data: base64 } }
-        ]}],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 600 }
-      })
-    }
-  );
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${resp.status}`);
-  }
-
-  const data = await resp.json();
-  let text = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-
-  // Strip markdown code fences if Gemini added them
-  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    const m = text.match(/\{[\s\S]*\}/);
-    if (m) return JSON.parse(m[0]);
-    throw new Error('Не удалось разобрать ответ AI');
-  }
+  const text = await geminiRequest(prompt, imgDataUrl);
+  return parseAIJson(text);
 }
 
 // ──────────────────────────────────────────
 // RESULT SCREEN
 // ──────────────────────────────────────────
 function fillResultScreen(r, imgData) {
-  $('result-img').src = imgData;
+  if (imgData) {
+    $('result-img').src = imgData;
+    $('result-img').style.display = 'block';
+  } else {
+    $('result-img').style.display = 'none';
+  }
   $('result-name').textContent = `${r.emoji || '🍽️'} ${r.dish_name}`;
 
   const colors = {
@@ -1466,10 +1427,7 @@ function toast(msg) {
 // TEST API KEY
 // ──────────────────────────────────────────
 async function testApiKey() {
-  const prov = $('settings-provider').value || S.provider;
-  const key  = prov === 'deepseek'
-    ? ($('settings-ds-key').value.trim() || S.dsKey)
-    : ($('settings-key').value.trim()    || S.apiKey);
+  const key = $('settings-key').value.trim() || S.apiKey;
   if (!key) { toast('Сначала введи API ключ'); return; }
 
   const el = $('key-test-result');
@@ -1482,28 +1440,9 @@ async function testApiKey() {
   ls('gemini_model', '');
 
   try {
-    if (prov === 'deepseek') {
-      // Test DeepSeek with a simple text request
-      const r = await fetch('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: [{ role: 'user', content: 'Скажи "привет"' }],
-          max_tokens: 5
-        })
-      });
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        throw new Error(e.error?.message || `HTTP ${r.status}`);
-      }
-      el.style.background = '#D5F5E3'; el.style.color = '#1A7A40';
-      el.textContent = '✅ DeepSeek ключ работает!';
-    } else {
-      const model = await findWorkingModel(key);
-      el.style.background = '#D5F5E3'; el.style.color = '#1A7A40';
-      el.textContent = `✅ Gemini работает! Модель: ${model}`;
-    }
+    const model = await findWorkingModel(key);
+    el.style.background = '#D5F5E3'; el.style.color = '#1A7A40';
+    el.textContent = `✅ Gemini работает! Модель: ${model}`;
   } catch(e) {
     el.style.background = '#FDEDEC'; el.style.color = '#943126';
     el.textContent = `❌ ${e.message}`;
