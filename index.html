@@ -350,6 +350,25 @@ body {
 }
 .input-with-voice input,
 .input-with-voice textarea { flex: 1; }
+
+/* ── CONFIRM SCREEN ── */
+.confirm-dish-name {
+  font-size: 22px; font-weight: 800; text-align: center;
+  margin: 10px 0;
+}
+.confirm-summary {
+  text-align: center; color: var(--text);
+  font-size: 14px; line-height: 1.6; margin-bottom: 12px;
+}
+.confirm-actions {
+  display: flex; flex-direction: column; gap: 10px; margin-top: 16px;
+}
+.confirm-listening {
+  text-align: center; padding: 10px;
+  font-size: 14px; font-weight: 600;
+  color: var(--unhealthy);
+  animation: pulse-rec 1s ease-in-out infinite;
+}
 </style>
 </head>
 <body>
@@ -448,6 +467,77 @@ body {
     <div class="spinner"></div>
     <h2 style="font-size:22px;font-weight:800">Анализирую еду...</h2>
     <p style="color:var(--text-muted);line-height:1.5">Искусственный интеллект<br>изучает твою тарелку</p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SCREEN: CONFIRM (NEW)
+══════════════════════════════════════════ -->
+<div id="screen-confirm" class="screen">
+  <div class="header">
+    <div class="header-row">
+      <button class="back-btn" onclick="confirmCancel()">←</button>
+      <div class="title-block">
+        <h1 style="font-size:18px">Проверь результат</h1>
+        <div class="subtitle">Правильно определил?</div>
+      </div>
+      <button class="speak-btn" onclick="speakConfirm()">🔊</button>
+    </div>
+  </div>
+
+  <div class="content padded-bottom">
+    <img id="confirm-img" class="analysis-img" src="" alt="Фото еды">
+
+    <div class="card" style="text-align:center">
+      <div id="confirm-badge" class="health-badge green" style="margin-bottom:8px">✅ Полезно</div>
+      <div class="confirm-dish-name" id="confirm-dish-name">Блюдо</div>
+
+      <div class="nutrition-grid">
+        <div class="nutrition-cell">
+          <div class="n-lbl">Калории</div>
+          <div class="n-val" id="c-cal">0</div>
+          <div class="n-unit">ккал</div>
+        </div>
+        <div class="nutrition-cell">
+          <div class="n-lbl">Белки</div>
+          <div class="n-val" id="c-p">0</div>
+          <div class="n-unit">г</div>
+        </div>
+        <div class="nutrition-cell">
+          <div class="n-lbl">Жиры</div>
+          <div class="n-val" id="c-f">0</div>
+          <div class="n-unit">г</div>
+        </div>
+        <div class="nutrition-cell">
+          <div class="n-lbl">Углеводы</div>
+          <div class="n-val" id="c-c">0</div>
+          <div class="n-unit">г</div>
+        </div>
+      </div>
+
+      <div class="ai-box" id="confirm-ai-comment"></div>
+    </div>
+
+    <div class="confirm-actions">
+      <button class="btn btn-primary" style="font-size:17px;padding:18px" onclick="confirmYes()">✅ Да, всё верно!</button>
+      <button class="btn btn-secondary" onclick="confirmVoice()">🎤 Ответить голосом</button>
+      <button class="btn btn-ghost" onclick="confirmEdit()">✏️ Нет, исправить</button>
+      <button class="btn btn-ghost" onclick="confirmRetake()" style="font-size:14px">📸 Переснять фото</button>
+    </div>
+
+    <div class="confirm-listening hidden" id="confirm-listening">
+      🔴 Слушаю... Скажи «да» или «нет, это каша»
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Комментарий (необязательно)</label>
+        <div class="input-with-voice">
+          <textarea id="confirm-comment" rows="2" placeholder="Было вкусно?"></textarea>
+          <button class="voice-btn" onclick="voiceToField('confirm-comment')" title="Голосовой ввод">🎤</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -833,9 +923,10 @@ function onPhotoSelected(ev) {
       S.analysisResult     = null;
       const result         = await analyzeFood(compressed);
       S.analysisResult     = result;
-      fillResultScreen(result, compressed);
-      showScreen('result');
-      setTimeout(() => speakResult(), 700);
+      fillConfirmScreen(result, compressed);
+      fillResultScreen(result, compressed);  // pre-fill edit screen in case user wants to edit
+      showScreen('confirm');
+      setTimeout(() => speak(`Я вижу ${result.dish_name}. Это правильно?`), 700);
     } catch (err) {
       console.error(err);
       showScreen('main');
@@ -1087,7 +1178,191 @@ function speakResult() {
 }
 
 // ──────────────────────────────────────────
-// SAVE ENTRY
+// CONFIRM SCREEN
+// ──────────────────────────────────────────
+const HEALTH_COLORS = {
+  green:  { cls: 'green',  icon: '✅', label: 'Полезно' },
+  yellow: { cls: 'yellow', icon: '⚡', label: 'Умеренно' },
+  red:    { cls: 'red',    icon: '⚠️', label: 'Вредно' },
+};
+
+function fillConfirmScreen(r, imgData) {
+  if (imgData) {
+    $('confirm-img').src = imgData;
+    $('confirm-img').style.display = 'block';
+  } else {
+    $('confirm-img').style.display = 'none';
+  }
+
+  $('confirm-dish-name').textContent = `${r.emoji || '🍽️'} ${r.dish_name}`;
+  const c = HEALTH_COLORS[r.health_color] || HEALTH_COLORS.yellow;
+  const badge = $('confirm-badge');
+  badge.className = `health-badge ${c.cls}`;
+  badge.textContent = `${c.icon} ${c.label}`;
+
+  $('c-cal').textContent = r.calories || 0;
+  $('c-p').textContent   = r.proteins || 0;
+  $('c-f').textContent   = r.fats     || 0;
+  $('c-c').textContent   = r.carbs    || 0;
+
+  $('confirm-ai-comment').textContent = r.health_comment || '';
+  $('confirm-comment').value = '';
+  $('confirm-listening').classList.add('hidden');
+}
+
+function speakConfirm() {
+  const r = S.analysisResult;
+  if (!r) return;
+  speak(`Я вижу ${r.dish_name}. Примерно ${r.calories} калорий. Это правильно?`);
+}
+
+function confirmYes() {
+  stopVoiceInput();
+  autoSaveFromConfirm();
+}
+
+function confirmEdit() {
+  stopVoiceInput();
+  fillResultScreen(S.analysisResult, S.capturedImg);
+  showScreen('result');
+}
+
+function confirmRetake() {
+  stopVoiceInput();
+  triggerCamera();
+}
+
+function confirmCancel() {
+  stopVoiceInput();
+  nav('main');
+}
+
+function confirmVoice() {
+  if (!STT.supported) {
+    toast('Голосовой ввод не поддерживается');
+    confirmEdit();
+    return;
+  }
+
+  $('confirm-listening').classList.remove('hidden');
+
+  // Speak the question, then listen
+  speak(`Я вижу ${S.analysisResult?.dish_name || 'блюдо'}. Это правильно?`);
+
+  const waitAndListen = () => {
+    if (window.speechSynthesis && window.speechSynthesis.speaking) {
+      setTimeout(waitAndListen, 200);
+      return;
+    }
+    startVoiceInput((text) => {
+      $('confirm-listening').classList.add('hidden');
+      handleConfirmVoiceResponse(text);
+    }, null);
+  };
+  setTimeout(waitAndListen, 300);
+}
+
+function handleConfirmVoiceResponse(text) {
+  const lower = text.toLowerCase().trim();
+  const yesWords = ['да', 'верно', 'правильно', 'ага', 'угу', 'точно', 'ок', 'окей'];
+  const noWords = ['нет', 'неправильно', 'не то', 'ошибка', 'неверно'];
+
+  if (yesWords.some(w => lower.startsWith(w) || lower === w)) {
+    toast('Сохраняю...');
+    autoSaveFromConfirm();
+    return;
+  }
+
+  if (noWords.some(w => lower.startsWith(w))) {
+    const correction = lower.replace(/^(нет|неправильно|не то|неверно)[,.\s]*/i, '').trim();
+    if (correction.length > 2) {
+      reanalyzeWithHint(correction);
+    } else {
+      confirmEdit();
+    }
+    return;
+  }
+
+  // Unclear — if long enough, treat as correction
+  if (lower.length > 5) {
+    reanalyzeWithHint(text);
+  } else {
+    speak('Не понял. Скажи «да» или «нет».');
+    toast('Скажи «да» или «нет»');
+  }
+}
+
+async function reanalyzeWithHint(hint) {
+  showScreen('loading');
+  try {
+    const prevName = S.analysisResult?.dish_name || '';
+    const prompt = `Пользователь уточнил что на самом деле это: "${hint}"${prevName ? `. Ранее ты определил как "${prevName}".` : ''}
+Проанализируй это блюдо как диетолог-помощник.
+Ответь ТОЛЬКО JSON: {"dish_name":"название на русском","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения","question":"вопрос если нужно"}`;
+
+    const text = await geminiRequest(prompt, S.capturedImg);
+    const result = parseAIJson(text);
+    S.analysisResult = result;
+    fillConfirmScreen(result, S.capturedImg);
+    fillResultScreen(result, S.capturedImg);
+    showScreen('confirm');
+    setTimeout(() => speak(`Теперь: ${result.dish_name}. Верно?`), 500);
+  } catch(err) {
+    showScreen('confirm');
+    toast('Ошибка: ' + (err.message || '').slice(0, 60));
+  }
+}
+
+function autoDetectMealType() {
+  const h = new Date().getHours();
+  return h < 10 ? 'breakfast' : h < 12 ? 'second_breakfast' :
+    h < 15 ? 'lunch' : h < 17 ? 'snack' : h < 21 ? 'dinner' : 'extra';
+}
+
+async function autoSaveFromConfirm() {
+  const r = S.analysisResult;
+  if (!r) return;
+
+  let thumb = null;
+  if (S.capturedImg) {
+    try { thumb = await makeThumbnail(S.capturedImg); } catch {}
+  }
+
+  const now = new Date();
+  const entry = {
+    id:          Date.now(),
+    date:        fmtDate(now),
+    time:        fmtTime(now),
+    mealType:    autoDetectMealType(),
+    dishName:    r.dish_name || 'Блюдо',
+    calories:    parseInt(r.calories) || 0,
+    proteins:    parseInt(r.proteins) || 0,
+    fats:        parseInt(r.fats) || 0,
+    carbs:       parseInt(r.carbs) || 0,
+    healthColor: r.health_color || 'yellow',
+    healthScore: r.health_score || 5,
+    aiComment:   r.health_comment || '',
+    portion:     r.portion || '',
+    userComment: $('confirm-comment')?.value?.trim() || '',
+    thumbnail:   thumb,
+  };
+
+  const all = getEntries();
+  all.push(entry);
+  try {
+    ls('diary_entries', JSON.stringify(all));
+  } catch {
+    all.forEach(e => { if (e.thumbnail && e.id < entry.id - 30) e.thumbnail = null; });
+    try { ls('diary_entries', JSON.stringify(all)); }
+    catch { toast('Хранилище заполнено'); return; }
+  }
+
+  S.lastSavedEntry = entry;
+  showFeedback(entry);
+}
+
+// ──────────────────────────────────────────
+// SAVE ENTRY (from edit screen)
 // ──────────────────────────────────────────
 async function saveEntry() {
   const name = $('edit-name').value.trim();
@@ -1129,9 +1404,8 @@ async function saveEntry() {
     catch { toast('Хранилище заполнено — удали старые записи'); return; }
   }
 
-  toast('Записано в дневник! ✅');
-  speak(`${name} сохранено! Молодец!`);
-  nav('main');
+  S.lastSavedEntry = entry;
+  showFeedback(entry);
 }
 
 // ──────────────────────────────────────────
