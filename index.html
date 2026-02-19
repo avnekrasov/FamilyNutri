@@ -504,17 +504,6 @@ body {
         </div>
       </div>
       <div class="form-group">
-        <label>Уровень активности</label>
-        <select id="setup-activity">
-          <option value="sedentary">Сидячий (офис, мало движения)</option>
-          <option value="light" selected>Лёгкий (прогулки 1-3 р/нед)</option>
-          <option value="moderate">Средний (спорт 3-5 р/нед)</option>
-          <option value="active">Высокий (спорт 6-7 р/нед)</option>
-          <option value="very_active">Очень высокий (тяжёлые тренировки)</option>
-        </select>
-      </div>
-
-      <div class="form-group">
         <label>API ключ Google Gemini</label>
         <input type="password" id="setup-key" placeholder="Вставь ключ сюда">
         <p style="font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.6">
@@ -579,17 +568,16 @@ body {
       <div id="main-balance-bar" style="height:8px;border-radius:4px;background:var(--border);margin-top:12px;overflow:hidden">
         <div id="bal-bar-fill" style="height:100%;border-radius:4px;transition:width 0.4s;width:0%"></div>
       </div>
+      <div id="bal-macros" style="display:flex;justify-content:center;gap:16px;margin-top:8px;font-size:11px;color:var(--text-muted)"></div>
     </div>
 
-    <!-- TOTALS (eaten today - compact) -->
-    <div class="totals-card">
-      <div class="ttl">Съедено сегодня</div>
-      <div class="cal-big"><span id="main-cal">0</span> <span class="cal-unit">ккал</span></div>
-      <div class="macros-row">
-        <div class="macro-item"><div class="macro-val"><span id="main-p">0</span>г</div><div class="macro-lbl">Белки</div></div>
-        <div class="macro-item"><div class="macro-val"><span id="main-f">0</span>г</div><div class="macro-lbl">Жиры</div></div>
-        <div class="macro-item"><div class="macro-val"><span id="main-c">0</span>г</div><div class="macro-lbl">Углеводы</div></div>
+    <!-- AI RECOMMENDATIONS (replaces totals card) -->
+    <div class="card" id="main-ai-advice" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <h3 style="font-size:15px;font-weight:800">🤖 Совет на сейчас</h3>
+        <span style="font-size:11px;color:var(--text-muted)" id="ai-advice-time"></span>
       </div>
+      <div id="ai-advice-text" style="font-size:14px;line-height:1.6;color:var(--text)">Загружаю рекомендации...</div>
     </div>
 
     <!-- FOOD + ACTIVITY BUTTONS (compact, side by side) -->
@@ -632,12 +620,6 @@ body {
       <div id="weight-mini-chart" style="margin-top:10px;font-size:12px;color:var(--text-muted)"></div>
     </div>
 
-    <!-- DAILY RECOMMENDATIONS -->
-    <div class="card" id="main-recommendations" style="display:none">
-      <h3 style="font-size:15px;font-weight:800;margin-bottom:10px">💡 Рекомендации</h3>
-      <div id="reco-list" style="font-size:14px;line-height:1.6"></div>
-    </div>
-
     <!-- TODAY'S ACTIVITIES PREVIEW -->
     <div id="main-activities-preview"></div>
 
@@ -655,6 +637,36 @@ body {
 <!-- ══════════════════════════════════════════
      SCREEN: LOADING
 ══════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════
+     SCREEN: PHOTO DESCRIBE (before analysis)
+══════════════════════════════════════════ -->
+<div id="screen-photo-describe" class="screen">
+  <div class="header">
+    <div class="header-row">
+      <button class="back-btn" onclick="nav('main')">←</button>
+      <div class="title-block">
+        <h1 style="font-size:18px">📸 Описание фото</h1>
+        <div class="subtitle">Уточни что на фото для точности</div>
+      </div>
+    </div>
+  </div>
+  <div class="content padded-bottom">
+    <img id="photo-describe-img" src="" alt="" style="width:100%;max-height:280px;object-fit:contain;border-radius:16px;margin-bottom:14px">
+    <div class="card">
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Что это? (необязательно, но повысит точность)</label>
+        <div class="input-with-voice">
+          <input type="text" id="photo-describe-text" placeholder="Например: гречка с курицей и салат" style="padding:14px;border:2px solid var(--border);border-radius:14px;font-size:16px;width:100%;font-family:inherit;outline:none"
+                 onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
+          <button class="voice-btn" onclick="voiceToField('photo-describe-text')" title="Голосовой ввод">🎤</button>
+        </div>
+      </div>
+      <button class="btn btn-primary" style="font-size:17px;padding:16px" onclick="sendPhotoWithDescription()">🔍 Распознать</button>
+      <button class="btn btn-ghost" style="margin-top:8px" onclick="sendPhotoWithDescription()">Пропустить описание →</button>
+    </div>
+  </div>
+</div>
+
 <div id="screen-loading" class="screen">
   <div class="loading-wrap">
     <div class="loading-emoji">🤔</div>
@@ -1072,16 +1084,7 @@ body {
           <input type="number" id="settings-weight" placeholder="65" inputmode="decimal" min="10" max="300" step="0.1">
         </div>
       </div>
-      <div class="form-group">
-        <label>Уровень активности</label>
-        <select id="settings-activity">
-          <option value="sedentary">Сидячий (офис, мало движения)</option>
-          <option value="light">Лёгкий (прогулки 1-3 р/нед)</option>
-          <option value="moderate">Средний (спорт 3-5 р/нед)</option>
-          <option value="active">Высокий (спорт 6-7 р/нед)</option>
-          <option value="very_active">Очень высокий (тяжёлые тренировки)</option>
-        </select>
-      </div>
+      <!-- Activity level removed: app tracks real activity, BMR used as base -->
       <div id="settings-norms-info" style="background:var(--bg);border-radius:14px;padding:12px;margin-bottom:14px;font-size:13px;color:var(--text)"></div>
 
       <button class="btn btn-primary" onclick="updateSettings()">Сохранить</button>
@@ -1274,7 +1277,6 @@ function nav(id) {
     $('settings-birth').value        = S.birthDate || '';
     $('settings-height').value       = S.heightCm || '';
     $('settings-weight').value       = S.weightKg || '';
-    $('settings-activity').value     = S.activityLevel || 'light';
     $('settings-key').value          = S.apiKey;
     $('settings-gemini-plan').value  = S.geminiPlan;
     $('report-area').classList.add('hidden');
@@ -1295,7 +1297,6 @@ function saveSetup() {
   const birth  = $('setup-birth').value;
   const height = parseFloat($('setup-height').value) || 0;
   const weight = parseFloat($('setup-weight').value) || 0;
-  const act    = $('setup-activity').value;
   if (!name)  { toast('Введи своё имя 👋'); return; }
   if (!key)   { toast('Нужен API ключ для анализа фото'); return; }
   ls('child_name', name);
@@ -1305,7 +1306,6 @@ function saveSetup() {
   ls('user_birth', birth);
   ls('user_height', height);
   ls('user_weight', weight);
-  ls('user_activity', act);
   S.childName     = name;
   S.apiKey        = key;
   S.geminiPlan    = plan;
@@ -1313,7 +1313,6 @@ function saveSetup() {
   S.birthDate     = birth;
   S.heightCm      = height;
   S.weightKg      = weight;
-  S.activityLevel = act;
   S.dailyNorms    = calcDailyNorms();
   showScreen('main');
   refreshMain();
@@ -1328,7 +1327,6 @@ function updateSettings() {
   const birth  = $('settings-birth').value;
   const height = parseFloat($('settings-height').value) || 0;
   const weight = parseFloat($('settings-weight').value) || 0;
-  const act    = $('settings-activity').value;
   if (name) { ls('child_name', name);     S.childName     = name; }
   if (key)  { ls('gemini_key', key);      S.apiKey        = key;  }
   if (plan) { ls('gemini_plan', plan);    S.geminiPlan    = plan; }
@@ -1336,7 +1334,6 @@ function updateSettings() {
   ls('user_birth', birth);     S.birthDate     = birth;
   if (height) { ls('user_height', height); S.heightCm    = height; }
   if (weight) { ls('user_weight', weight); S.weightKg    = weight; }
-  ls('user_activity', act);    S.activityLevel = act;
   _cachedModel = null;
   S.dailyNorms = calcDailyNorms();
   updateNormsInfo();
@@ -1355,10 +1352,6 @@ function refreshMain() {
 
   const entries = todayEntries();
   const t = totals(entries);
-  $('main-cal').textContent = t.cal;
-  $('main-p').textContent   = t.p;
-  $('main-f').textContent   = t.f;
-  $('main-c').textContent   = t.c;
 
   // ── Weight widget ──
   refreshWeightWidget();
@@ -1390,6 +1383,10 @@ function refreshMain() {
   const barFill = $('bal-bar-fill');
   barFill.style.width = Math.min(pct, 100) + '%';
   barFill.style.background = pct > 100 ? 'var(--unhealthy)' : pct > 80 ? 'var(--moderate)' : 'var(--secondary)';
+  // Macros summary under bar
+  $('bal-macros').innerHTML = t.cal > 0
+    ? `<span>Б: <b>${t.p}</b>г</span><span>Ж: <b>${t.f}</b>г</span><span>У: <b>${t.c}</b>г</span>`
+    : '';
 
   // ── Today activities preview ──
   const acts = todayActivities();
@@ -1436,8 +1433,8 @@ function refreshMain() {
       last.map(e => renderEntry(e, false)).join('');
   }
 
-  // ── Recommendations ──
-  renderRecommendations();
+  // ── AI Recommendations ──
+  refreshAIAdvice(t, burned, actOnly);
 }
 
 function speakTodaySummary() {
@@ -1461,30 +1458,17 @@ function onPhotoSelected(ev) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = async e => {
-    showScreen('loading');
     try {
-      const compressed     = await compressImg(e.target.result, 900, 0.82);
-      S.capturedImg        = compressed;
-      S.analysisResult     = null;
-      const result         = await analyzeFood(compressed);
-      S.analysisResult     = result;
-      fillConfirmScreen(result, compressed);
-      fillResultScreen(result, compressed);  // pre-fill edit screen in case user wants to edit
-      showScreen('confirm');
-      setTimeout(() => speak(`Я вижу ${result.dish_name}. Это правильно?`), 700);
+      const compressed = await compressImg(e.target.result, 900, 0.82);
+      S.capturedImg    = compressed;
+      S.analysisResult = null;
+      // Show describe screen instead of immediately sending
+      $('photo-describe-img').src = compressed;
+      $('photo-describe-text').value = '';
+      showScreen('photo-describe');
     } catch (err) {
-      console.error('Photo analysis error:', err);
-      showScreen('main');
-      const msg = err.message || '';
-      if (msg.includes('API_KEY') || msg.includes('401') || msg.includes('403')) {
-        toast('❌ Неверный API ключ. Проверь в Настройках.');
-      } else if (msg.includes('quota') || msg.includes('429')) {
-        toast('⏳ Превышен лимит запросов. Подожди минуту.');
-      } else if (msg.includes('разобрать') || msg.includes('Не удалось')) {
-        toast('🔄 ' + msg.slice(0, 100));
-      } else {
-        toast('❌ ' + (msg.slice(0, 100) || 'нет интернета?'));
-      }
+      toast('❌ Ошибка обработки фото');
+      console.error(err);
     }
   };
   reader.readAsDataURL(file);
@@ -1586,9 +1570,17 @@ function cancelAnalysis() {
 
 async function geminiRequest(prompt, imageBase64) {
   _abortController = new AbortController();
+
+  // Ensure model is resolved (use cached or default, avoid extra API call)
+  const model = _cachedModel || ls('gemini_model') || DEFAULT_MODEL;
+  // Lazy-load model list in background if not cached (don't block request)
+  if (!_cachedModel) {
+    findWorkingModel(S.apiKey).catch(() => {}); // fire-and-forget
+  }
+
   // Rate limiting for free plan (pause between requests)
   if (S.geminiPlan === 'free') {
-    const minPause = _cachedModel ? 4000 : 6000; // longer pause if model not cached yet
+    const minPause = 4000;
     if (S.lastGeminiCall > 0) {
       const elapsed = Date.now() - S.lastGeminiCall;
       if (elapsed < minPause) {
@@ -1596,11 +1588,6 @@ async function geminiRequest(prompt, imageBase64) {
       }
     }
   }
-
-  const wasCached = !!_cachedModel;
-  const model = await findWorkingModel(S.apiKey);
-  // If model wasn't cached, findWorkingModel made an API call — update timestamp
-  if (!wasCached) S.lastGeminiCall = Date.now();
   const parts = [{ text: prompt }];
 
   if (imageBase64) {
@@ -1627,11 +1614,12 @@ async function geminiRequest(prompt, imageBase64) {
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       if (resp.status === 429) {
-        if (retried >= 2) throw new Error('Превышен лимит запросов. Подожди 1-2 минуты и попробуй снова.');
-        const wait = S.geminiPlan === 'free' ? 15000 : 3000;
+        if (retried >= 3) throw new Error('Превышен лимит запросов. Подожди 1-2 минуты и попробуй снова.');
+        const attempt = (retried || 0) + 1;
+        const wait = S.geminiPlan === 'free' ? (attempt * 8000) : 3000; // 8s, 16s, 24s
         // Silent retry — no countdown timer to avoid confusing the user
         await new Promise(r => setTimeout(r, wait));
-        return doRequest((retried || 0) + 1);
+        return doRequest(attempt);
       }
       throw new Error(err.error?.message || `HTTP ${resp.status}`);
     }
@@ -1656,6 +1644,22 @@ async function geminiRequest(prompt, imageBase64) {
   };
 
   return doRequest(false);
+}
+
+function fixZeroMacros(r) {
+  // Ensure numeric types
+  r.calories = parseInt(r.calories) || 0;
+  r.proteins = parseInt(r.proteins) || 0;
+  r.fats     = parseInt(r.fats)     || 0;
+  r.carbs    = parseInt(r.carbs)    || 0;
+  // If we have calories but macros are zero, estimate them
+  if (r.calories > 0 && r.proteins === 0 && r.fats === 0 && r.carbs === 0) {
+    console.warn('Zero macros detected, estimating from calories:', r.calories);
+    r.proteins = Math.round(r.calories * 0.25 / 4);
+    r.fats     = Math.round(r.calories * 0.30 / 9);
+    r.carbs    = Math.round(r.calories * 0.45 / 4);
+  }
+  return r;
 }
 
 function parseAIJson(rawText) {
@@ -1689,7 +1693,7 @@ function parseAIJson(rawText) {
   let json = text.slice(start, end + 1);
 
   // Step 2: Direct parse
-  try { return JSON.parse(json); } catch(e1) {
+  try { return fixZeroMacros(JSON.parse(json)); } catch(e1) {
     console.warn('Direct parse failed:', e1.message);
   }
 
@@ -1700,7 +1704,7 @@ function parseAIJson(rawText) {
     .replace(/:\s*'([^']*)'/g, ': "$1"')               // single → double quotes
     .replace(/:\s*(\d+)\s*[а-яА-Яa-zA-Z%]+/g, ': $1') // "350 ккал" → 350
     .replace(/\u00a0/g, ' ');                           // nbsp
-  try { return JSON.parse(cleaned); } catch(e2) {
+  try { return fixZeroMacros(JSON.parse(cleaned)); } catch(e2) {
     console.warn('Cleaned parse failed:', e2.message, '\n', cleaned.slice(0, 200));
   }
 
@@ -1710,8 +1714,9 @@ function parseAIJson(rawText) {
     return m ? m[1].replace(/\\"/g, '"').replace(/\\n/g, ' ') : '';
   };
   const getNum = (key) => {
-    const m = json.match(new RegExp(`"${key}"\\s*:\\s*(\\d+)`));
-    return m ? parseInt(m[1]) : 0;
+    // Match: "key": 350 or "key": "350" or "key": "350 ккал"
+    const m = json.match(new RegExp(`"${key}"\\s*:\\s*"?(\\d+(?:\\.\\d+)?)`));
+    return m ? Math.round(parseFloat(m[1])) : 0;
   };
 
   const result = {
@@ -1730,7 +1735,7 @@ function parseAIJson(rawText) {
 
   if (result.dish_name !== 'Блюдо' || result.calories > 0) {
     console.log('Parsed via regex fallback:', result);
-    return result;
+    return fixZeroMacros(result);
   }
 
   console.error('All parse attempts failed. Raw:', rawText);
@@ -1740,8 +1745,38 @@ function parseAIJson(rawText) {
 // ──────────────────────────────────────────
 // GEMINI AI ANALYSIS
 // ──────────────────────────────────────────
-async function analyzeFood(imgDataUrl) {
-  const prompt = `Ты диетолог-помощник для детей. Проанализируй фото еды.
+async function sendPhotoWithDescription() {
+  if (!S.capturedImg) { toast('Нет фото'); nav('main'); return; }
+  const desc = ($('photo-describe-text').value || '').trim();
+  showScreen('loading');
+  try {
+    const result = await analyzeFood(S.capturedImg, desc);
+    S.analysisResult = result;
+    fillConfirmScreen(result, S.capturedImg);
+    fillResultScreen(result, S.capturedImg);
+    showScreen('confirm');
+    setTimeout(() => speak(`Я вижу ${result.dish_name}. Это правильно?`), 700);
+  } catch (err) {
+    console.error('Photo analysis error:', err);
+    showScreen('main');
+    const msg = err.message || '';
+    if (msg.includes('API_KEY') || msg.includes('401') || msg.includes('403')) {
+      toast('❌ Неверный API ключ. Проверь в Настройках.');
+    } else if (msg.includes('quota') || msg.includes('429')) {
+      toast('⏳ Превышен лимит запросов. Подожди минуту.');
+    } else if (msg.includes('разобрать') || msg.includes('Не удалось')) {
+      toast('🔄 ' + msg.slice(0, 100));
+    } else {
+      toast('❌ ' + (msg.slice(0, 100) || 'нет интернета?'));
+    }
+  }
+}
+
+async function analyzeFood(imgDataUrl, userDescription) {
+  const descHint = userDescription
+    ? `\nПользователь уточнил что на фото: "${userDescription}". Учти это при анализе.`
+    : '';
+  const prompt = `Ты диетолог-помощник. Проанализируй фото еды.${descHint}
 Ответь ТОЛЬКО JSON-объектом без markdown, без лишнего текста.
 
 {
@@ -1754,9 +1789,11 @@ async function analyzeFood(imgDataUrl) {
   "carbs": целое число граммов углеводов,
   "health_score": целое число от 1 до 10,
   "health_color": "green" или "yellow" или "red",
-  "health_comment": "2-3 предложения для ребёнка о пользе или вреде этого блюда для здоровья",
+  "health_comment": "2-3 предложения о пользе или вреде этого блюда для здоровья",
   "question": "уточняющий вопрос о порции, напитке или добавках"
 }
+
+ВАЖНО: ВСЕ числовые поля (calories, proteins, fats, carbs) ОБЯЗАТЕЛЬНО должны быть ненулевыми для реальной еды.
 
 Правила health_color:
 green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки, молочные
@@ -2121,7 +2158,8 @@ function calcDailyNorms() {
   const h = S.heightCm || 170;
   const age = calcAge(S.birthDate);
   const g = S.gender || 'male';
-  const coeff = ACTIVITY_COEFFS[S.activityLevel] || 1.375;
+  // No activity coefficient — app tracks real activity separately
+  // BMR is the pure base metabolic rate
 
   let bmr;
   if (age < 18) {
@@ -2136,7 +2174,7 @@ function calcDailyNorms() {
       : 10 * w + 6.25 * h - 5 * age - 161;
   }
 
-  const cal = Math.round(bmr * coeff);
+  const cal = Math.round(bmr);
   return {
     cal,
     p: Math.round(cal * 0.25 / 4),   // 25% калорий из белков, 4 ккал/г
@@ -2150,7 +2188,7 @@ function updateNormsInfo() {
   const el = $('settings-norms-info');
   if (!el) return;
   const n = S.dailyNorms;
-  el.innerHTML = `⚡ BMR: <b>${n.bmr}</b> ккал &nbsp;|&nbsp; 🎯 Норма: <b>${n.cal}</b> ккал<br>Б: ${n.p}г · Ж: ${n.f}г · У: ${n.c}г`;
+  el.innerHTML = `⚡ Базовый обмен (BMR): <b>${n.cal}</b> ккал/день<br>Б: ${n.p}г · Ж: ${n.f}г · У: ${n.c}г<br><span style="font-size:11px;color:var(--text-muted)">Реальная активность отслеживается отдельно</span>`;
 }
 
 // ──────────────────────────────────────────
@@ -2466,87 +2504,94 @@ function refreshWeightWidget() {
 }
 
 // ──────────────────────────────────────────
-// DAILY RECOMMENDATIONS
+// AI RECOMMENDATIONS
 // ──────────────────────────────────────────
-function buildRecommendations() {
-  const entries = todayEntries();
-  const t       = totals(entries);
-  const burned  = todayBurnedCal();         // BMR + activity
-  const actOnly = todayActivityBurnOnly();  // activity only
-  const norm    = S.dailyNorms.cal || 2000;
-  const pNorm   = S.dailyNorms.p || 60;
-  const fNorm   = S.dailyNorms.f || 65;
-  const cNorm   = S.dailyNorms.c || 260;
-  const now     = new Date();
-  const hour    = now.getHours();
-  const balance = t.cal - burned;  // negative = deficit (good), positive = surplus
-  const tips = [];
+let _lastAIAdvice = '';
+let _lastAIAdviceHash = '';
 
-  // Time-based meal suggestions
-  if (hour >= 7 && hour < 10 && !entries.some(e => e.mealType === 'breakfast')) {
-    tips.push('🌅 Время завтрака! Не пропускай — это запускает метаболизм.');
-  }
-  if (hour >= 12 && hour < 14 && !entries.some(e => e.mealType === 'lunch')) {
-    tips.push('🍲 Пора обедать! Выбирай что-то с белком и овощами.');
-  }
-  if (hour >= 17 && hour < 20 && !entries.some(e => e.mealType === 'dinner')) {
-    tips.push('🥗 Время ужина. Лёгкий ужин за 2-3 часа до сна — идеально.');
-  }
+function refreshAIAdvice(t, burned, actOnly) {
+  const card = $('main-ai-advice');
+  if (!card) return;
 
-  // Calorie balance (deficit-oriented)
-  if (t.cal === 0 && hour > 10) {
-    tips.push('📝 Ты ещё ничего не записал сегодня. Запиши что ты ел!');
-  } else if (balance <= 0 && t.cal > 0) {
-    tips.push(`✅ Отличный баланс! Дефицит ${Math.abs(balance)} ккал — так держать!`);
-  } else if (balance > 0 && balance < norm * 0.15) {
-    tips.push(`⚡ Небольшой профицит: +${balance} ккал. Прогулка поможет его снизить.`);
-  } else if (balance > norm * 0.15) {
-    tips.push(`⚠️ Профицит +${balance} ккал. Воздержись от перекусов или добавь активность.`);
-  }
-
-  // Macro balance
-  if (t.cal > 200) {
-    if (t.p < pNorm * 0.3 && hour > 12) {
-      tips.push('🥩 Мало белка! Добавь мясо, рыбу, яйца или творог.');
-    }
-    if (t.f > fNorm * 1.2) {
-      tips.push('🧈 Многовато жиров. Выбирай менее жирные блюда до конца дня.');
-    }
-    if (t.c > cNorm * 1.1) {
-      tips.push('🍞 Углеводов уже достаточно. Добавь белковый перекус.');
-    }
-  }
-
-  // Activity suggestions
-  if (actOnly === 0 && hour >= 10 && hour < 20) {
-    tips.push('🏃 Сегодня нет тренировок. Прогулка 30 мин сожжёт ~' + Math.round(3.8 * (S.weightKg || 65) * 0.5) + ' ккал!');
-  } else if (actOnly > 0) {
-    tips.push(`🔥 Отлично! Ты уже сжёг ${actOnly} ккал тренировками!`);
-  }
-
-  // Evening advice
-  if (hour >= 21) {
-    tips.push('🌙 Вечер — старайся не есть за 2 часа до сна. Пей воду!');
-  }
-
-  // Water reminder
-  if (hour >= 11 && hour <= 20 && entries.length > 0) {
-    tips.push('💧 Не забывай пить воду — 6-8 стаканов в день.');
-  }
-
-  return tips.slice(0, 4); // max 4 tips
-}
-
-function renderRecommendations() {
-  const tips = buildRecommendations();
-  const card = $('main-recommendations');
-  const list = $('reco-list');
-  if (!tips.length) {
-    card.style.display = 'none';
+  // Build context hash to decide if we need a new AI call
+  const hash = `${t.cal}-${t.p}-${t.f}-${t.c}-${burned}-${actOnly}-${new Date().getHours()}`;
+  if (hash === _lastAIAdviceHash && _lastAIAdvice) {
+    // Same data, show cached advice
+    card.style.display = 'block';
+    $('ai-advice-text').innerHTML = _lastAIAdvice;
     return;
   }
+
+  // Show fallback immediately, then try AI
+  const fallback = buildQuickTips(t, burned, actOnly);
   card.style.display = 'block';
-  list.innerHTML = tips.map(t => `<div style="padding:6px 0;border-bottom:1px solid var(--border)">${t}</div>`).join('');
+  $('ai-advice-text').innerHTML = fallback;
+  $('ai-advice-time').textContent = new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+
+  // Fire AI request in background (don't block UI)
+  if (S.apiKey && t.cal > 0) {
+    fetchAIAdvice(t, burned, actOnly, hash).catch(() => {});
+  }
+}
+
+function buildQuickTips(t, burned, actOnly) {
+  const norm = S.dailyNorms.cal || 2000;
+  const balance = t.cal - burned;
+  const hour = new Date().getHours();
+  const tips = [];
+
+  if (t.cal === 0) {
+    if (hour < 10) tips.push('🌅 Доброе утро! Начни день с полезного завтрака.');
+    else tips.push('📝 Запиши что ты ел сегодня, чтобы отслеживать баланс.');
+  } else {
+    if (balance <= 0) tips.push(`✅ Отличный баланс! Дефицит ${Math.abs(balance)} ккал.`);
+    else if (balance < norm * 0.15) tips.push(`⚡ Баланс почти в норме. Небольшая прогулка поможет!`);
+    else tips.push(`⚠️ Профицит +${balance} ккал. Добавь активность или воздержись от перекусов.`);
+  }
+
+  if (actOnly === 0 && hour >= 10 && hour < 21) {
+    tips.push('🏃 Добавь тренировку — даже 20 мин прогулки сделают разницу!');
+  }
+
+  return tips.map(t => `<div style="padding:4px 0">${t}</div>`).join('');
+}
+
+async function fetchAIAdvice(t, burned, actOnly, hash) {
+  try {
+    const entries = todayEntries();
+    const norm = S.dailyNorms.cal || 2000;
+    const balance = t.cal - burned;
+    const hour = new Date().getHours();
+    const meals = entries.map(e => e.dishName).join(', ') || 'ничего';
+    const age = calcAge(S.birthDate);
+
+    const prompt = `Ты диетолог-помощник. Дай КРАТКИЙ персональный совет (3-4 предложения) по питанию и активности на оставшийся день.
+
+Данные:
+- Возраст: ${age} лет, пол: ${S.gender === 'male' ? 'мужской' : 'женский'}, вес: ${S.weightKg} кг, рост: ${S.heightCm} см
+- Сейчас ${hour}:00
+- Съедено: ${t.cal} ккал (Б:${t.p}г Ж:${t.f}г У:${t.c}г)
+- Блюда сегодня: ${meals}
+- Сожжено: ${burned} ккал (BMR к этому часу + ${actOnly} ккал тренировок)
+- Баланс: ${balance > 0 ? '+' : ''}${balance} ккал
+- Норма (BMR): ${norm} ккал/день
+
+Цель: быть в дефиците или балансе калорий. Порекомендуй конкретные блюда и активности. Говори на "ты", дружелюбно. Используй эмодзи. Только текст, без JSON/markdown.`;
+
+    const text = await geminiRequest(prompt);
+    _lastAIAdvice = text.split('\n').filter(l => l.trim()).map(l => `<div style="padding:3px 0">${l}</div>`).join('');
+    _lastAIAdviceHash = hash;
+    // Update UI if still on main screen
+    const card = $('main-ai-advice');
+    if (card) {
+      card.style.display = 'block';
+      $('ai-advice-text').innerHTML = _lastAIAdvice;
+      $('ai-advice-time').textContent = '🤖 ' + new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+    }
+  } catch(e) {
+    console.warn('AI advice error:', e);
+    // Keep the fallback, don't overwrite
+  }
 }
 
 // ──────────────────────────────────────────
