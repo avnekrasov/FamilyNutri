@@ -1066,13 +1066,15 @@ function onPhotoSelected(ev) {
       showScreen('confirm');
       setTimeout(() => speak(`Я вижу ${result.dish_name}. Это правильно?`), 700);
     } catch (err) {
-      console.error(err);
+      console.error('Photo analysis error:', err);
       showScreen('main');
       const msg = err.message || '';
       if (msg.includes('API_KEY') || msg.includes('401') || msg.includes('403')) {
         toast('❌ Неверный API ключ. Проверь в Настройках.');
       } else if (msg.includes('quota') || msg.includes('429')) {
         toast('⏳ Превышен лимит запросов. Подожди минуту.');
+      } else if (msg.includes('разобрать ответ')) {
+        toast('🔄 AI ответил неверно. Попробуй ещё раз.');
       } else {
         toast('❌ Ошибка: ' + (msg.slice(0, 80) || 'нет интернета?'));
       }
@@ -1214,7 +1216,9 @@ async function geminiRequest(prompt, imageBase64) {
 
     const data = await resp.json();
     let text = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    // Strip all markdown code fences (```json ... ``` or ``` ... ```)
+    text = text.replace(/```(?:json|JSON)?\s*/g, '').replace(/```/g, '').trim();
+    console.log('Gemini raw response:', text.slice(0, 300));
     return text;
   };
 
@@ -1222,12 +1226,26 @@ async function geminiRequest(prompt, imageBase64) {
 }
 
 function parseAIJson(text) {
-  try { return JSON.parse(text); }
-  catch {
-    const m = text.match(/\{[\s\S]*\}/);
-    if (m) return JSON.parse(m[0]);
-    throw new Error('Не удалось разобрать ответ AI');
+  // 1. Direct parse
+  try { return JSON.parse(text); } catch {}
+
+  // 2. Extract JSON object from surrounding text
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(text.slice(start, end + 1)); } catch {}
   }
+
+  // 3. Try fixing common issues: trailing commas, unquoted keys
+  try {
+    const cleaned = text.slice(start, end + 1)
+      .replace(/,\s*([}\]])/g, '$1')           // trailing commas
+      .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":'); // unquoted keys
+    return JSON.parse(cleaned);
+  } catch {}
+
+  console.error('Failed to parse AI response:', text);
+  throw new Error('Не удалось разобрать ответ AI');
 }
 
 // ──────────────────────────────────────────
