@@ -1240,26 +1240,57 @@ async function geminiRequest(prompt, imageBase64) {
 }
 
 function parseAIJson(text) {
-  // 1. Direct parse
-  try { return JSON.parse(text); } catch {}
-
-  // 2. Extract JSON object from surrounding text
+  // Extract JSON block
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
-  if (start !== -1 && end > start) {
-    try { return JSON.parse(text.slice(start, end + 1)); } catch {}
+  let json = (start !== -1 && end > start) ? text.slice(start, end + 1) : text;
+
+  // 1. Direct parse
+  try { return JSON.parse(json); } catch(e1) {
+    console.warn('Parse attempt 1 failed:', e1.message);
   }
 
-  // 3. Try fixing common issues: trailing commas, unquoted keys
+  // 2. Fix common Gemini issues
+  let cleaned = json
+    .replace(/\n/g, ' ')                          // remove newlines inside strings
+    .replace(/,\s*([}\]])/g, '$1')                 // trailing commas
+    .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":')     // unquoted keys
+    .replace(/:\s*'([^']*)'/g, ': "$1"')            // single quotes → double
+    .replace(/:\s*(\d+)\s*[а-яА-Яa-zA-Z]+/g, ': $1') // "calories: 350 ккал" → "calories: 350"
+    .replace(/\u00a0/g, ' ');                       // non-breaking spaces
+  try { return JSON.parse(cleaned); } catch(e2) {
+    console.warn('Parse attempt 2 failed:', e2.message);
+  }
+
+  // 3. Regex extraction as last resort — build object manually
   try {
-    const cleaned = text.slice(start, end + 1)
-      .replace(/,\s*([}\]])/g, '$1')           // trailing commas
-      .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":'); // unquoted keys
-    return JSON.parse(cleaned);
+    const get = (key) => {
+      const m = json.match(new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`, 'i'))
+             || json.match(new RegExp(`"${key}"\\s*:\\s*([\\d.]+)`, 'i'));
+      return m ? m[1] : null;
+    };
+    const result = {
+      dish_name:      get('dish_name') || 'Неизвестное блюдо',
+      portion:        get('portion') || '',
+      emoji:          get('emoji') || '🍽️',
+      calories:       parseInt(get('calories')) || 0,
+      proteins:       parseInt(get('proteins')) || 0,
+      fats:           parseInt(get('fats')) || 0,
+      carbs:          parseInt(get('carbs')) || 0,
+      health_score:   parseInt(get('health_score')) || 5,
+      health_color:   get('health_color') || 'yellow',
+      health_comment: get('health_comment') || '',
+      question:       get('question') || '',
+    };
+    if (result.dish_name !== 'Неизвестное блюдо' || result.calories > 0) {
+      console.log('Parsed via regex fallback:', result);
+      return result;
+    }
   } catch {}
 
-  console.error('Failed to parse AI response:', text);
-  throw new Error('Не удалось разобрать: ' + text.slice(0, 100));
+  console.error('All parse attempts failed. Raw:', text);
+  alert('DEBUG: AI ответ:\n' + text.slice(0, 500));
+  throw new Error('Не удалось разобрать ответ AI');
 }
 
 // ──────────────────────────────────────────
