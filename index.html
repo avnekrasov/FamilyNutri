@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Питание">
 <meta name="theme-color" content="#FF6B6B">
+<link rel="manifest" href="manifest.json">
 <title>🥗 Дневник питания</title>
 <style>
 :root {
@@ -41,7 +42,6 @@ body {
 .header {
   background: linear-gradient(135deg, var(--primary) 0%, #FF8E53 100%);
   color: white;
-  padding-top: max(env(safe-area-inset-top, 0px), 16px);
   padding: max(env(safe-area-inset-top, 0px), 16px) 20px 24px 20px;
   flex-shrink: 0;
   border-radius: 0 0 28px 28px;
@@ -2099,6 +2099,13 @@ async function testApiKey() {
     el.style.background = '#FDEDEC'; el.style.color = '#943126';
     el.textContent = `❌ ${e.message}`;
   }
+}
+
+// ──────────────────────────────────────────
+// SERVICE WORKER
+// ──────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
 // ──────────────────────────────────────────
