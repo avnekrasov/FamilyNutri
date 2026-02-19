@@ -454,6 +454,10 @@ body {
 .balance-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 13px; }
 .balance-row .b-val { font-weight: 700; }
 </style>
+<!-- Firebase SDK (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
@@ -657,6 +661,7 @@ body {
     <div class="spinner"></div>
     <h2 style="font-size:22px;font-weight:800">Анализирую еду...</h2>
     <p style="color:var(--text-muted);line-height:1.5">Искусственный интеллект<br>изучает твою тарелку</p>
+    <button class="btn btn-ghost" style="margin-top:30px;width:auto;padding:12px 32px" onclick="cancelAnalysis()">✕ Отменить</button>
   </div>
 </div>
 
@@ -1118,17 +1123,41 @@ body {
     </div>
 
     <div class="card" style="border-left:4px solid #9B59B6">
-      <h3 style="font-size:15px;font-weight:800;margin-bottom:6px;color:#9B59B6">🔐 Аккаунт и бэкап</h3>
-      <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px">
-        Привяжи email для восстановления данных на новом устройстве
-      </p>
-      <div class="form-group">
-        <label>Email</label>
-        <input type="email" id="settings-email" placeholder="user@example.com">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:6px;color:#9B59B6">🔐 Аккаунт и облачный бэкап</h3>
+
+      <!-- Auth state: not logged in -->
+      <div id="auth-logged-out">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px">
+          Войди через email чтобы данные сохранялись в облаке и восстанавливались на любом устройстве
+        </p>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="auth-email" placeholder="user@example.com">
+        </div>
+        <button class="btn btn-primary" style="margin-bottom:8px" onclick="cloudSignIn()">📧 Войти по email-ссылке</button>
       </div>
-      <button class="btn btn-primary" style="margin-bottom:8px" onclick="saveEmail()">Привязать email</button>
+
+      <!-- Auth state: logged in -->
+      <div id="auth-logged-in" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;background:var(--bg);border-radius:14px;padding:12px">
+          <div style="font-size:28px">👤</div>
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:14px" id="auth-user-email">—</div>
+            <div style="font-size:12px;color:var(--text-muted)" id="auth-user-sync">Синхронизация...</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button class="btn btn-secondary" style="flex:1;font-size:13px" onclick="cloudSaveBackup()">☁️ Сохранить в облако</button>
+          <button class="btn btn-ghost" style="flex:1;font-size:13px" onclick="cloudLoadBackup()">📥 Загрузить из облака</button>
+        </div>
+        <button class="btn btn-ghost" style="font-size:13px" onclick="cloudSignOut()">Выйти из аккаунта</button>
+      </div>
+
+      <div style="height:1px;background:var(--border);margin:14px 0"></div>
+
+      <p style="font-size:13px;font-weight:700;margin-bottom:8px">Локальный бэкап (JSON файл)</p>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-secondary" style="flex:1;font-size:13px" onclick="exportBackup()">📤 Экспорт данных</button>
+        <button class="btn btn-ghost" style="flex:1;font-size:13px" onclick="exportBackup()">📤 Экспорт</button>
         <button class="btn btn-ghost" style="flex:1;font-size:13px" onclick="$('backup-file-input').click()">📥 Импорт</button>
       </div>
       <input type="file" id="backup-file-input" accept=".json" style="display:none" onchange="importBackup(event)">
@@ -1196,6 +1225,19 @@ function init() {
   S.weightKg      = parseFloat(ls('user_weight')) || 0;
   S.activityLevel = ls('user_activity') || 'light';
   S.dailyNorms    = calcDailyNorms();
+
+  // Firebase init
+  initFirebase();
+  // Check email link sign-in
+  if (_fbAuth && _fbAuth.isSignInWithEmailLink(window.location.href)) {
+    const email = ls('emailForSignIn') || prompt('Подтверди email:');
+    if (email) {
+      _fbAuth.signInWithEmailLink(email, window.location.href)
+        .then(() => { localStorage.removeItem('emailForSignIn'); toast('✅ Вход выполнен!'); })
+        .catch(e => toast('Ошибка входа: ' + e.message));
+    }
+  }
+
   if (!S.apiKey || !S.childName) {
     showScreen('setup');
   } else {
@@ -1238,9 +1280,7 @@ function nav(id) {
     $('report-area').classList.add('hidden');
     $('key-test-result').style.display = 'none';
     updateNormsInfo();
-    const email = ls('user_email') || '';
-    $('settings-email').value = email;
-    $('backup-status').textContent = email ? 'Email: ' + email : '';
+    updateAuthUI();
   }
 }
 
@@ -1520,7 +1560,20 @@ async function findWorkingModel(key) {
 // ──────────────────────────────────────────
 // GEMINI API WRAPPER (rate-limited)
 // ──────────────────────────────────────────
+let _abortController = null;
+
+function cancelAnalysis() {
+  if (_abortController) {
+    _abortController.abort();
+    _abortController = null;
+  }
+  _foodOverrideDate = null;
+  showScreen('main');
+  toast('Анализ отменён');
+}
+
 async function geminiRequest(prompt, imageBase64) {
+  _abortController = new AbortController();
   // Rate limiting for free plan (pause between requests)
   if (S.geminiPlan === 'free') {
     const minPause = _cachedModel ? 4000 : 6000; // longer pause if model not cached yet
@@ -1550,6 +1603,7 @@ async function geminiRequest(prompt, imageBase64) {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: _abortController?.signal,
         body: JSON.stringify({
           contents: [{ parts }],
           generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
@@ -1560,11 +1614,21 @@ async function geminiRequest(prompt, imageBase64) {
 
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      if (resp.status === 429 && !retried) {
-        const wait = S.geminiPlan === 'free' ? 60000 : 2000;
-        toast(S.geminiPlan === 'free' ? '⏳ Лимит запросов, подожди...' : '⏳ Повторяю запрос...');
+      if (resp.status === 429) {
+        if (retried >= 2) throw new Error('Превышен лимит запросов. Подожди 1-2 минуты и попробуй снова.');
+        const wait = S.geminiPlan === 'free' ? 30000 : 3000;
+        const secs = Math.round(wait / 1000);
+        toast(`⏳ Лимит запросов, жду ${secs} сек...`);
+        // Show countdown
+        let left = secs;
+        const timer = setInterval(() => {
+          left--;
+          if (left > 0) toast(`⏳ Повторю через ${left} сек...`);
+          else clearInterval(timer);
+        }, 1000);
         await new Promise(r => setTimeout(r, wait));
-        return doRequest(true);
+        clearInterval(timer);
+        return doRequest((retried || 0) + 1);
       }
       throw new Error(err.error?.message || `HTTP ${resp.status}`);
     }
@@ -2088,18 +2152,100 @@ let _selDurationMin  = null;
 let _activityPhoto   = null;
 let _activityOverrideDate = null;
 
-function onActivityPhotoSelected(ev) {
+async function onActivityPhotoSelected(ev) {
   const file = ev.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = async e => {
     try {
-      _activityPhoto = await compressImg(e.target.result, 400, 0.7);
-      $('activity-photo-preview').src = _activityPhoto;
+      const compressed = await compressImg(e.target.result, 800, 0.8);
+      _activityPhoto = compressed;
+      $('activity-photo-preview').src = compressed;
       $('activity-photo-preview').style.display = 'block';
-    } catch { toast('Не удалось загрузить фото'); }
+      toast('📷 Фото загружено, анализирую...');
+      // Send to Gemini for recognition
+      await analyzeActivityScreenshot(compressed);
+    } catch(err) {
+      toast('Не удалось загрузить фото: ' + (err.message || '').slice(0, 40));
+    }
   };
   reader.readAsDataURL(file);
+}
+
+async function analyzeActivityScreenshot(imageBase64) {
+  try {
+    const p = `Это скриншот из фитнес-приложения или трекера активности.
+Распознай: тип активности, длительность в минутах, потраченные калории.
+Ответь ТОЛЬКО JSON: {"activity_type":"тип активности","duration_min":число,"calories_burned":число,"description":"краткое описание"}
+Если не можешь определить — верни {"activity_type":"other","duration_min":30,"calories_burned":0,"description":"не удалось распознать"}`;
+    const raw = await geminiRequest(p, imageBase64);
+    const result = parseAIJson(raw);
+
+    // Auto-fill duration if recognized
+    if (result.duration_min && result.duration_min > 0) {
+      _selDurationMin = result.duration_min;
+      // Select closest duration chip
+      const chips = document.querySelectorAll('#duration-options .duration-chip');
+      chips.forEach(c => c.classList.remove('selected'));
+      let closest = null, minDiff = Infinity;
+      chips.forEach(c => {
+        const d = Math.abs(parseInt(c.dataset.min) - result.duration_min);
+        if (d < minDiff) { minDiff = d; closest = c; }
+      });
+      if (closest) closest.classList.add('selected');
+    }
+
+    // Auto-select activity type if matched
+    if (result.activity_type) {
+      const typeMap = {
+        'ходьба': 'walking', 'прогулка': 'walking', 'walking': 'walking',
+        'бег': 'running', 'running': 'running', 'run': 'running',
+        'плавание': 'swimming', 'swimming': 'swimming',
+        'футбол': 'football', 'football': 'football', 'soccer': 'football',
+        'йога': 'yoga', 'зарядка': 'yoga', 'yoga': 'yoga',
+        'велосипед': 'cycling', 'cycling': 'cycling', 'bike': 'cycling',
+        'танцы': 'dancing', 'dancing': 'dancing', 'dance': 'dancing',
+        'тренировка': 'gym', 'gym': 'gym', 'workout': 'gym', 'силовая': 'gym',
+        'уборка': 'cleaning', 'cleaning': 'cleaning',
+        'уроки': 'study', 'учёба': 'study', 'study': 'study',
+      };
+      const lower = result.activity_type.toLowerCase();
+      let matchedType = null;
+      for (const [key, val] of Object.entries(typeMap)) {
+        if (lower.includes(key)) { matchedType = val; break; }
+      }
+      if (matchedType) {
+        const chips = document.querySelectorAll('#activity-types .activity-chip');
+        chips.forEach(c => c.classList.remove('selected'));
+        chips.forEach(c => {
+          if (c.dataset.type === matchedType) {
+            c.classList.add('selected');
+            _selActivityType = {
+              type: c.dataset.type,
+              cal: parseFloat(c.dataset.cal),
+              label: c.textContent.trim()
+            };
+          }
+        });
+      }
+    }
+
+    // If Gemini gave calories — show them (override calculated)
+    if (result.calories_burned > 0) {
+      updateActivityPreview();
+      // Override preview cal with Gemini's value
+      $('activity-preview-cal').textContent = result.calories_burned + ' ккал';
+      $('activity-preview').style.display = 'block';
+      $('activity-save-btn').style.display = 'block';
+      toast('✅ Распознано: ' + (result.description || result.activity_type));
+    } else {
+      updateActivityPreview();
+      toast('📷 Фото загружено. Выбери тип и время вручную.');
+    }
+  } catch(err) {
+    if (err.name === 'AbortError') return;
+    toast('📷 Фото сохранено. Заполни данные вручную.');
+  }
 }
 
 // Chip selection handlers
@@ -2538,29 +2684,32 @@ function changeDay(delta) {
 }
 
 function addFoodForDiaryDate() {
-  _foodOverrideDate = fmtDate(S.diaryDate);
-  // Show choice: photo / voice / text
   const d = S.diaryDate;
-  const label = fmtDate(d) === fmtDate(new Date()) ? 'сегодня' : formatFullDate(d);
-  const choice = prompt(`Добавить еду за ${label}.\nВведи название блюда (или нажми Отмена и используй фото):`, '');
+  const dateStr = fmtDate(d);
+  _foodOverrideDate = dateStr;
+  const label = dateStr === fmtDate(new Date()) ? 'сегодня' : formatFullDate(d);
+  const choice = prompt(`Добавить еду за ${label}.\nВведи название блюда (или нажми Отмена для фото):`, '');
   if (choice === null) {
-    // User cancelled — let them use photo
+    // User wants photo — override date stays set
     triggerCamera();
     return;
   }
-  if (choice.trim()) {
-    // Text-based food analysis for a specific date
-    startTextFoodWithDate(choice.trim(), _foodOverrideDate);
+  if (!choice.trim()) {
+    _foodOverrideDate = null;
+    toast('Введи название блюда');
+    return;
   }
+  // Text-based food analysis for specific date
+  analyzeTextForDate(choice.trim(), dateStr);
 }
 
-async function startTextFoodWithDate(text, dateOverride) {
+async function analyzeTextForDate(text, dateOverride) {
   showScreen('loading');
   try {
-    const prompt = `Пользователь описал свою еду: "${text}".
-Проанализируй как диетолог-помощник. Рассчитай КБЖУ.
-Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения","question":""}`;
-    const raw = await geminiRequest(prompt, null);
+    const p = `Ты диетолог-помощник. Пользователь описал еду: "${text}".
+Рассчитай КБЖУ для стандартной порции. Ответь ТОЛЬКО JSON без markdown:
+{"dish_name":"название на русском","portion":"примерная порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 дружелюбных предложения","question":""}`;
+    const raw = await geminiRequest(p, null);
     const result = parseAIJson(raw);
     S.analysisResult = result;
     S.capturedImg = null;
@@ -2569,8 +2718,10 @@ async function startTextFoodWithDate(text, dateOverride) {
     fillResultScreen(result, null);
     showScreen('confirm');
   } catch(err) {
-    showScreen('diary');
-    toast('Ошибка: ' + (err.message || '').slice(0, 60));
+    if (err.name === 'AbortError') return; // cancelled by user
+    _foodOverrideDate = null;
+    nav('diary');
+    toast('❌ ' + (err.message || 'Ошибка анализа').slice(0, 80));
   }
 }
 
@@ -3091,21 +3242,96 @@ async function testApiKey() {
 }
 
 // ──────────────────────────────────────────
-// ACCOUNT & BACKUP
+// FIREBASE INIT
 // ──────────────────────────────────────────
-function saveEmail() {
-  const email = $('settings-email').value.trim();
-  if (!email || !email.includes('@')) { toast('Введи корректный email'); return; }
-  ls('user_email', email);
-  toast('✅ Email привязан: ' + email);
-  $('backup-status').textContent = 'Email: ' + email;
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyD-placeholder",
+  authDomain: "familynutri-app.firebaseapp.com",
+  projectId: "familynutri-app",
+  storageBucket: "familynutri-app.appspot.com",
+  messagingSenderId: "000000000000",
+  appId: "1:000000000000:web:placeholder"
+};
+
+let _fb = null, _fbAuth = null, _fbDb = null, _fbUser = null;
+function initFirebase() {
+  try {
+    if (typeof firebase === 'undefined') return false;
+    _fb = firebase.initializeApp(FIREBASE_CONFIG);
+    _fbAuth = firebase.auth();
+    _fbDb = firebase.firestore();
+    // Listen for auth state changes
+    _fbAuth.onAuthStateChanged(user => {
+      _fbUser = user;
+      updateAuthUI();
+    });
+    return true;
+  } catch(e) {
+    console.warn('Firebase init failed:', e);
+    return false;
+  }
 }
 
-function exportBackup() {
-  const data = {
+function updateAuthUI() {
+  const loggedOut = $('auth-logged-out');
+  const loggedIn  = $('auth-logged-in');
+  if (!loggedOut || !loggedIn) return;
+
+  if (_fbUser) {
+    loggedOut.style.display = 'none';
+    loggedIn.style.display = 'block';
+    $('auth-user-email').textContent = _fbUser.email || 'Аноним';
+    $('auth-user-sync').textContent = 'Подключено к облаку ✅';
+  } else {
+    loggedOut.style.display = 'block';
+    loggedIn.style.display = 'none';
+  }
+}
+
+// ──────────────────────────────────────────
+// ACCOUNT & BACKUP
+// ──────────────────────────────────────────
+async function cloudSignIn() {
+  const email = $('auth-email').value.trim();
+  if (!email || !email.includes('@')) { toast('Введи корректный email'); return; }
+
+  if (!_fbAuth) { toast('Firebase не инициализирован. Настройте проект Firebase.'); return; }
+
+  try {
+    // Send sign-in email link
+    const actionCodeSettings = {
+      url: window.location.href,
+      handleCodeInApp: true,
+    };
+    await _fbAuth.sendSignInLinkToEmail(email, actionCodeSettings);
+    ls('emailForSignIn', email);
+    toast('📧 Ссылка отправлена на ' + email + '! Проверь почту.');
+  } catch(err) {
+    // Fallback: try email/password
+    try {
+      await _fbAuth.signInWithEmailAndPassword(email, 'familynutri-' + email);
+    } catch {
+      try {
+        await _fbAuth.createUserWithEmailAndPassword(email, 'familynutri-' + email);
+        toast('✅ Аккаунт создан!');
+      } catch(e2) {
+        toast('❌ ' + (e2.message || 'Ошибка авторизации').slice(0, 60));
+      }
+    }
+  }
+}
+
+function cloudSignOut() {
+  if (_fbAuth) _fbAuth.signOut();
+  _fbUser = null;
+  updateAuthUI();
+  toast('Вы вышли из аккаунта');
+}
+
+function buildBackupData() {
+  return {
     version: 2,
     date: new Date().toISOString(),
-    email: ls('user_email') || '',
     profile: {
       childName: S.childName,
       gender: S.gender,
@@ -3120,7 +3346,85 @@ function exportBackup() {
     activities: getActivities(),
     weightHistory: getWeightHistory(),
   };
+}
 
+async function cloudSaveBackup() {
+  if (!_fbUser || !_fbDb) { toast('Сначала войдите в аккаунт'); return; }
+  try {
+    const data = buildBackupData();
+    // Remove thumbnails to save space (Firestore 1MB doc limit)
+    if (data.diaryEntries) {
+      data.diaryEntries = data.diaryEntries.map(e => ({ ...e, thumbnail: null }));
+    }
+    if (data.activities) {
+      data.activities = data.activities.map(a => ({ ...a, photo: null }));
+    }
+    await _fbDb.collection('backups').doc(_fbUser.uid).set(data);
+    $('auth-user-sync').textContent = 'Сохранено ' + new Date().toLocaleTimeString() + ' ✅';
+    toast('☁️ Данные сохранены в облако!');
+  } catch(err) {
+    toast('❌ Ошибка: ' + (err.message || '').slice(0, 50));
+  }
+}
+
+async function cloudLoadBackup() {
+  if (!_fbUser || !_fbDb) { toast('Сначала войдите в аккаунт'); return; }
+  try {
+    const doc = await _fbDb.collection('backups').doc(_fbUser.uid).get();
+    if (!doc.exists) { toast('Бэкап не найден в облаке'); return; }
+    const data = doc.data();
+    restoreFromBackup(data);
+    toast('📥 Данные загружены из облака!');
+  } catch(err) {
+    toast('❌ Ошибка: ' + (err.message || '').slice(0, 50));
+  }
+}
+
+function restoreFromBackup(data) {
+  if (!data.version) throw new Error('Неверный формат');
+
+  // Restore profile
+  if (data.profile) {
+    const p = data.profile;
+    if (p.childName)     { S.childName = p.childName;     ls('child_name', p.childName); }
+    if (p.gender)        { S.gender = p.gender;           ls('user_gender', p.gender); }
+    if (p.birthDate)     { S.birthDate = p.birthDate;     ls('user_birth', p.birthDate); }
+    if (p.heightCm)      { S.heightCm = p.heightCm;       ls('user_height', p.heightCm); }
+    if (p.weightKg)      { S.weightKg = p.weightKg;       ls('user_weight', p.weightKg); }
+    if (p.activityLevel) { S.activityLevel = p.activityLevel; ls('user_activity', p.activityLevel); }
+  }
+  if (data.apiKey)     { S.apiKey = data.apiKey;         ls('gemini_key', data.apiKey); }
+  if (data.geminiPlan) { S.geminiPlan = data.geminiPlan;  ls('gemini_plan', data.geminiPlan); }
+
+  // Merge diary entries
+  if (data.diaryEntries && data.diaryEntries.length) {
+    const existing = getEntries();
+    const existIds = new Set(existing.map(e => e.id));
+    const newEntries = data.diaryEntries.filter(e => !existIds.has(e.id));
+    ls('diary_entries', JSON.stringify([...existing, ...newEntries].sort((a, b) => a.id - b.id)));
+  }
+
+  // Merge activities
+  if (data.activities && data.activities.length) {
+    const existing = getActivities();
+    const existIds = new Set(existing.map(a => a.id));
+    const newActs = data.activities.filter(a => !existIds.has(a.id));
+    localStorage.setItem('activity_entries', JSON.stringify([...existing, ...newActs].sort((a, b) => a.id - b.id)));
+  }
+
+  // Merge weight history
+  if (data.weightHistory && data.weightHistory.length) {
+    const existing = getWeightHistory();
+    const existDates = new Set(existing.map(w => w.date));
+    const newW = data.weightHistory.filter(w => !existDates.has(w.date));
+    localStorage.setItem('weight_history', JSON.stringify([...existing, ...newW].sort((a, b) => a.date.localeCompare(b.date))));
+  }
+
+  S.dailyNorms = calcDailyNorms();
+}
+
+function exportBackup() {
+  const data = buildBackupData();
   const json = JSON.stringify(data, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
@@ -3139,54 +3443,9 @@ function importBackup(ev) {
   reader.onload = e => {
     try {
       const data = JSON.parse(e.target.result);
-      if (!data.version) throw new Error('Неверный формат файла');
-
-      // Restore profile
-      if (data.profile) {
-        const p = data.profile;
-        if (p.childName)     { S.childName = p.childName;     ls('child_name', p.childName); }
-        if (p.gender)        { S.gender = p.gender;           ls('user_gender', p.gender); }
-        if (p.birthDate)     { S.birthDate = p.birthDate;     ls('user_birth', p.birthDate); }
-        if (p.heightCm)      { S.heightCm = p.heightCm;       ls('user_height', p.heightCm); }
-        if (p.weightKg)      { S.weightKg = p.weightKg;       ls('user_weight', p.weightKg); }
-        if (p.activityLevel) { S.activityLevel = p.activityLevel; ls('user_activity', p.activityLevel); }
-      }
-      if (data.apiKey)     { S.apiKey = data.apiKey;         ls('gemini_key', data.apiKey); }
-      if (data.geminiPlan) { S.geminiPlan = data.geminiPlan;  ls('gemini_plan', data.geminiPlan); }
-      if (data.email)      { ls('user_email', data.email); }
-
-      // Merge diary entries (avoid duplicates by id)
-      if (data.diaryEntries && data.diaryEntries.length) {
-        const existing = getEntries();
-        const existIds = new Set(existing.map(e => e.id));
-        const newEntries = data.diaryEntries.filter(e => !existIds.has(e.id));
-        const merged = [...existing, ...newEntries].sort((a, b) => a.id - b.id);
-        ls('diary_entries', JSON.stringify(merged));
-      }
-
-      // Merge activities
-      if (data.activities && data.activities.length) {
-        const existing = getActivities();
-        const existIds = new Set(existing.map(a => a.id));
-        const newActs = data.activities.filter(a => !existIds.has(a.id));
-        const merged = [...existing, ...newActs].sort((a, b) => a.id - b.id);
-        localStorage.setItem('activity_entries', JSON.stringify(merged));
-      }
-
-      // Merge weight history
-      if (data.weightHistory && data.weightHistory.length) {
-        const existing = getWeightHistory();
-        const existDates = new Set(existing.map(w => w.date));
-        const newW = data.weightHistory.filter(w => !existDates.has(w.date));
-        const merged = [...existing, ...newW].sort((a, b) => a.date.localeCompare(b.date));
-        localStorage.setItem('weight_history', JSON.stringify(merged));
-      }
-
-      // Recalc norms
-      S.dailyNorms = calcDailyNorms();
-
+      restoreFromBackup(data);
       toast('📥 Данные восстановлены!');
-      $('backup-status').textContent = `Импортировано: ${data.diaryEntries?.length || 0} записей, ${data.activities?.length || 0} активностей`;
+      $('backup-status').textContent = `Импортировано: ${data.diaryEntries?.length || 0} записей`;
       nav('settings');
     } catch(err) {
       toast('❌ Ошибка импорта: ' + (err.message || '').slice(0, 50));
