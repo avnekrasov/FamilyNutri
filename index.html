@@ -1073,10 +1073,10 @@ function onPhotoSelected(ev) {
         toast('❌ Неверный API ключ. Проверь в Настройках.');
       } else if (msg.includes('quota') || msg.includes('429')) {
         toast('⏳ Превышен лимит запросов. Подожди минуту.');
-      } else if (msg.includes('разобрать ответ')) {
-        toast('🔄 AI ответил неверно. Попробуй ещё раз.');
+      } else if (msg.includes('разобрать') || msg.includes('Не удалось')) {
+        toast('🔄 ' + msg.slice(0, 100));
       } else {
-        toast('❌ Ошибка: ' + (msg.slice(0, 80) || 'нет интернета?'));
+        toast('❌ ' + (msg.slice(0, 100) || 'нет интернета?'));
       }
     }
   };
@@ -1215,10 +1215,24 @@ async function geminiRequest(prompt, imageBase64) {
     }
 
     const data = await resp.json();
-    let text = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    console.log('Gemini full response:', JSON.stringify(data).slice(0, 500));
+
+    // Check for blocked responses
+    const blocked = data.promptFeedback?.blockReason;
+    if (blocked) throw new Error('Запрос заблокирован: ' + blocked);
+
+    const candidate = data.candidates?.[0];
+    if (!candidate) throw new Error('Пустой ответ от AI (нет candidates)');
+
+    const finishReason = candidate.finishReason;
+    if (finishReason === 'SAFETY') throw new Error('Ответ заблокирован фильтром безопасности');
+
+    let text = (candidate.content?.parts?.[0]?.text || '').trim();
+    if (!text) throw new Error('AI вернул пустой текст');
+
     // Strip all markdown code fences (```json ... ``` or ``` ... ```)
     text = text.replace(/```(?:json|JSON)?\s*/g, '').replace(/```/g, '').trim();
-    console.log('Gemini raw response:', text.slice(0, 300));
+    console.log('Gemini cleaned text:', text.slice(0, 300));
     return text;
   };
 
@@ -1245,7 +1259,7 @@ function parseAIJson(text) {
   } catch {}
 
   console.error('Failed to parse AI response:', text);
-  throw new Error('Не удалось разобрать ответ AI');
+  throw new Error('Не удалось разобрать: ' + text.slice(0, 100));
 }
 
 // ──────────────────────────────────────────
