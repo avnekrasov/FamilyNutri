@@ -1229,10 +1229,7 @@ async function geminiRequest(prompt, imageBase64) {
 
     let text = (candidate.content?.parts?.[0]?.text || '').trim();
     if (!text) throw new Error('AI вернул пустой текст');
-
-    // Strip all markdown code fences (```json ... ``` or ``` ... ```)
-    text = text.replace(/```(?:json|JSON)?\s*/g, '').replace(/```/g, '').trim();
-    console.log('Gemini cleaned text:', text.slice(0, 300));
+    console.log('Gemini RAW text:', text.slice(0, 400));
     return text;
   };
 
@@ -1240,14 +1237,24 @@ async function geminiRequest(prompt, imageBase64) {
 }
 
 function parseAIJson(rawText) {
-  // Step 0: Normalize — collapse all whitespace (newlines break JSON strings)
-  let text = rawText.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // Step 0: Strip markdown fences BEFORE collapsing newlines
+  let text = rawText
+    .replace(/^```(?:json|JSON)?\s*\n?/gm, '')  // opening fence
+    .replace(/\n?```\s*$/gm, '')                  // closing fence
+    .replace(/```/g, '')                           // any remaining
+    .trim();
+
+  // Step 0b: Collapse newlines and extra whitespace
+  text = text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  console.log('parseAIJson input:', text.slice(0, 300));
 
   // Step 1: Extract {...} block
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
   if (start === -1 || end <= start) {
-    console.error('No JSON block found:', text);
+    console.error('No JSON block found in:', text);
+    alert('DEBUG — нет JSON в ответе AI:\n' + rawText.slice(0, 500));
     throw new Error('AI не вернул JSON');
   }
   let json = text.slice(start, end + 1);
