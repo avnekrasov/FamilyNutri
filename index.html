@@ -571,9 +571,9 @@ body {
           <div style="font-size:11px;color:var(--text-muted)">Сожжено</div>
         </div>
         <div style="text-align:center;flex:1">
-          <div style="font-size:22px">🎯</div>
+          <div style="font-size:22px">📊</div>
           <div class="b-val" id="bal-remaining">0</div>
-          <div style="font-size:11px;color:var(--text-muted)">Осталось</div>
+          <div style="font-size:11px;color:var(--text-muted)">Баланс</div>
         </div>
       </div>
       <div id="main-balance-bar" style="height:8px;border-radius:4px;background:var(--border);margin-top:12px;overflow:hidden">
@@ -997,7 +997,7 @@ body {
 
   <div class="content padded-bottom">
     <div id="diary-content"></div>
-    <div style="display:flex;gap:8px;margin-top:14px">
+    <div id="diary-add-buttons" style="display:flex;gap:8px;margin-top:14px">
       <button class="btn btn-ghost" style="flex:1;font-size:13px;padding:12px 8px" onclick="addFoodForDiaryDate()">🍽️ + Еда</button>
       <button class="btn btn-ghost" style="flex:1;font-size:13px;padding:12px 8px" onclick="addActivityForDiaryDate()">🏃 + Активность</button>
     </div>
@@ -1364,19 +1364,31 @@ function refreshMain() {
   refreshWeightWidget();
 
   // ── Balance card ──
-  const burned    = todayBurnedCal();
+  // New logic: Balance = Eaten - Burned (BMR+activity). Goal: near zero or negative (deficit)
+  const burned    = todayBurnedCal();         // BMR proportional + activity
+  const actOnly   = todayActivityBurnOnly();  // only logged activities
   const norm      = S.dailyNorms.cal || 2000;
-  const remaining = Math.max(0, norm - t.cal + burned);
-  const pct       = Math.min(100, Math.round(t.cal / norm * 100));
+  const balance   = t.cal - burned;           // positive = surplus, negative = deficit
   const balCard   = $('main-balance-card');
   balCard.style.display = 'block';
   $('main-norm-label').textContent = 'Норма: ' + norm + ' ккал';
   $('bal-eaten').textContent    = t.cal + ' ккал';
   $('bal-burned').textContent   = burned + ' ккал';
-  $('bal-remaining').textContent = remaining + ' ккал';
-  $('bal-remaining').style.color = remaining < norm * 0.1 ? 'var(--unhealthy)' : 'var(--text)';
+  // Balance display
+  const balText = balance > 0 ? '+' + balance + ' ккал' : balance + ' ккал';
+  $('bal-remaining').textContent = balText;
+  // Color: green for deficit (≤0), orange near zero, red for big surplus
+  if (balance <= 0) {
+    $('bal-remaining').style.color = 'var(--healthy)';
+  } else if (balance <= norm * 0.15) {
+    $('bal-remaining').style.color = 'var(--moderate)';
+  } else {
+    $('bal-remaining').style.color = 'var(--unhealthy)';
+  }
+  // Bar: fill based on eaten / norm ratio
+  const pct = Math.min(120, Math.round(t.cal / norm * 100));
   const barFill = $('bal-bar-fill');
-  barFill.style.width = pct + '%';
+  barFill.style.width = Math.min(pct, 100) + '%';
   barFill.style.background = pct > 100 ? 'var(--unhealthy)' : pct > 80 ? 'var(--moderate)' : 'var(--secondary)';
 
   // ── Today activities preview ──
@@ -1386,7 +1398,7 @@ function refreshMain() {
     actPreview.innerHTML =
       `<div class="section-title">
          Активности сегодня
-         <span style="font-size:13px;color:var(--secondary);font-weight:700">🔥 −${burned} ккал</span>
+         <span style="font-size:13px;color:var(--secondary);font-weight:700">🔥 −${actOnly} ккал</span>
        </div>` +
       acts.map(a => `
         <div class="meal-entry" style="border-left-color:var(--secondary)">
@@ -1616,18 +1628,9 @@ async function geminiRequest(prompt, imageBase64) {
       const err = await resp.json().catch(() => ({}));
       if (resp.status === 429) {
         if (retried >= 2) throw new Error('Превышен лимит запросов. Подожди 1-2 минуты и попробуй снова.');
-        const wait = S.geminiPlan === 'free' ? 30000 : 3000;
-        const secs = Math.round(wait / 1000);
-        toast(`⏳ Лимит запросов, жду ${secs} сек...`);
-        // Show countdown
-        let left = secs;
-        const timer = setInterval(() => {
-          left--;
-          if (left > 0) toast(`⏳ Повторю через ${left} сек...`);
-          else clearInterval(timer);
-        }, 1000);
+        const wait = S.geminiPlan === 'free' ? 15000 : 3000;
+        // Silent retry — no countdown timer to avoid confusing the user
         await new Promise(r => setTimeout(r, wait));
-        clearInterval(timer);
         return doRequest((retried || 0) + 1);
       }
       throw new Error(err.error?.message || `HTTP ${resp.status}`);
@@ -1973,10 +1976,16 @@ async function reanalyzeEdited() {
   if (!name) { toast('Введи название блюда'); return; }
   showScreen('loading');
   try {
-    const prompt = `Пользователь сообщил что это блюдо: "${name}".
-Рассчитай КБЖУ и оцени полезность как диетолог.
+    const hasPhoto = !!S.capturedImg;
+    const prompt = hasPhoto
+      ? `Посмотри на это фото еды. Пользователь уточнил, что это: "${name}".
+Используя ФОТО и описание пользователя вместе, точно рассчитай КБЖУ (калории, белки, жиры и углеводы).
+Оцени размер порции по фото. Обязательно укажи ненулевые значения для ВСЕХ полей (calories, proteins, fats, carbs).
+Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":""}`
+      : `Пользователь сообщил что это блюдо: "${name}".
+Рассчитай КБЖУ и оцени полезность как диетолог. Обязательно укажи ненулевые значения для calories, proteins, fats, carbs.
 Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":""}`;
-    const text = await geminiRequest(prompt, S.capturedImg);
+    const text = await geminiRequest(prompt, hasPhoto ? S.capturedImg : null);
     const result = parseAIJson(text);
     S.analysisResult = result;
     fillResultScreen(result, S.capturedImg);
@@ -2342,6 +2351,17 @@ function todayActivities() {
 }
 
 function todayBurnedCal() {
+  // Activity-based burn
+  const actBurn = todayActivities().reduce((s, a) => s + (a.calBurned || 0), 0);
+  // BMR proportional to time of day
+  const bmr = S.dailyNorms.bmr || 1500;
+  const now = new Date();
+  const minutesPassed = now.getHours() * 60 + now.getMinutes();
+  const bmrBurned = Math.round(bmr * minutesPassed / 1440); // 1440 min in a day
+  return actBurn + bmrBurned;
+}
+
+function todayActivityBurnOnly() {
   return todayActivities().reduce((s, a) => s + (a.calBurned || 0), 0);
 }
 
@@ -2451,14 +2471,15 @@ function refreshWeightWidget() {
 function buildRecommendations() {
   const entries = todayEntries();
   const t       = totals(entries);
-  const burned  = todayBurnedCal();
+  const burned  = todayBurnedCal();         // BMR + activity
+  const actOnly = todayActivityBurnOnly();  // activity only
   const norm    = S.dailyNorms.cal || 2000;
   const pNorm   = S.dailyNorms.p || 60;
   const fNorm   = S.dailyNorms.f || 65;
   const cNorm   = S.dailyNorms.c || 260;
   const now     = new Date();
   const hour    = now.getHours();
-  const remaining = norm - t.cal + burned;
+  const balance = t.cal - burned;  // negative = deficit (good), positive = surplus
   const tips = [];
 
   // Time-based meal suggestions
@@ -2472,17 +2493,15 @@ function buildRecommendations() {
     tips.push('🥗 Время ужина. Лёгкий ужин за 2-3 часа до сна — идеально.');
   }
 
-  // Calorie balance
+  // Calorie balance (deficit-oriented)
   if (t.cal === 0 && hour > 10) {
     tips.push('📝 Ты ещё ничего не записал сегодня. Запиши что ты ел!');
-  } else if (remaining > norm * 0.6 && hour > 14) {
-    tips.push(`⚠️ Ты съел мало — осталось ещё ${remaining} ккал до нормы. Не голодай!`);
-  } else if (remaining < 0) {
-    tips.push(`🔴 Норма превышена на ${Math.abs(remaining)} ккал. Воздержись от перекусов.`);
-  } else if (remaining < norm * 0.15 && remaining > 0) {
-    tips.push(`✅ Почти в норме! Осталось всего ${remaining} ккал. Лёгкий перекус — и порядок.`);
-  } else if (remaining > 0 && t.cal > 0) {
-    tips.push(`🎯 Осталось ${remaining} ккал. Ты на правильном пути!`);
+  } else if (balance <= 0 && t.cal > 0) {
+    tips.push(`✅ Отличный баланс! Дефицит ${Math.abs(balance)} ккал — так держать!`);
+  } else if (balance > 0 && balance < norm * 0.15) {
+    tips.push(`⚡ Небольшой профицит: +${balance} ккал. Прогулка поможет его снизить.`);
+  } else if (balance > norm * 0.15) {
+    tips.push(`⚠️ Профицит +${balance} ккал. Воздержись от перекусов или добавь активность.`);
   }
 
   // Macro balance
@@ -2493,16 +2512,16 @@ function buildRecommendations() {
     if (t.f > fNorm * 1.2) {
       tips.push('🧈 Многовато жиров. Выбирай менее жирные блюда до конца дня.');
     }
-    if (t.c > cNorm * 1.1 && remaining > 0) {
+    if (t.c > cNorm * 1.1) {
       tips.push('🍞 Углеводов уже достаточно. Добавь белковый перекус.');
     }
   }
 
   // Activity suggestions
-  if (burned === 0 && hour >= 10 && hour < 20) {
-    tips.push('🏃 Сегодня нет активности. Прогулка 30 мин сожжёт ~' + Math.round(3.8 * (S.weightKg || 65) * 0.5) + ' ккал!');
-  } else if (burned > 0) {
-    tips.push(`🔥 Отлично! Ты уже сжёг ${burned} ккал активностями!`);
+  if (actOnly === 0 && hour >= 10 && hour < 20) {
+    tips.push('🏃 Сегодня нет тренировок. Прогулка 30 мин сожжёт ~' + Math.round(3.8 * (S.weightKg || 65) * 0.5) + ' ккал!');
+  } else if (actOnly > 0) {
+    tips.push(`🔥 Отлично! Ты уже сжёг ${actOnly} ккал тренировками!`);
   }
 
   // Evening advice
@@ -2585,29 +2604,27 @@ function showFeedback(entry) {
 
 async function generateDayPlan(dayTotals, mealCount) {
   try {
-    const remaining = {
-      cal: Math.max(S.dailyNorms.cal - dayTotals.cal, 0),
-      p: Math.max(S.dailyNorms.p - dayTotals.p, 0),
-    };
+    const burned = todayBurnedCal();
+    const balance = dayTotals.cal - burned;
     const h = new Date().getHours();
     const timeOfDay = h < 12 ? 'утро' : h < 17 ? 'день' : 'вечер';
-    const overNorm = dayTotals.cal > S.dailyNorms.cal;
+    const isDeficit = balance <= 0;
 
-    const prompt = `Ты добрый диетолог для ребёнка. Сейчас ${timeOfDay}. Съедено ${mealCount} приёмов пищи, всего ${dayTotals.cal} ккал из ${S.dailyNorms.cal}.
-${overNorm ? 'Норма превышена. НЕ ругай, мягко предложи прогулку.' : `Осталось ${remaining.cal} ккал, белков осталось ${remaining.p}г.`}
-Дай КРАТКИЙ дружелюбный совет (2-3 предложения) на оставшийся день. Говори на "ты". НИКОГДА не ругай. Только текст, без JSON, без markdown.`;
+    const prompt = `Ты добрый диетолог. Сейчас ${timeOfDay}. Съедено ${mealCount} приёмов пищи, всего ${dayTotals.cal} ккал. Сожжено ${burned} ккал (BMR + активность). Баланс: ${balance > 0 ? '+' : ''}${balance} ккал.
+${isDeficit ? 'Баланс в дефиците — это хорошо для контроля веса.' : 'Баланс в профиците. Мягко предложи прогулку или лёгкую активность.'}
+Цель — быть ближе к нулю или в небольшом дефиците. Дай КРАТКИЙ дружелюбный совет (2-3 предложения) на оставшийся день. Говори на "ты". НИКОГДА не ругай. Только текст, без JSON, без markdown.`;
 
     const text = await geminiRequest(prompt);
     $('fb-plan-text').textContent = text;
   } catch {
     // Fallback — simple local tips
-    const remaining = S.dailyNorms.cal - dayTotals.cal;
-    if (remaining > 400) {
-      $('fb-plan-text').textContent = `У тебя ещё ${remaining} ккал на сегодня. Не забудь попить воды и съесть что-то полезное!`;
-    } else if (remaining > 0) {
-      $('fb-plan-text').textContent = 'Почти норма! Можешь перекусить фруктами или овощами.';
+    const balance = dayTotals.cal - todayBurnedCal();
+    if (balance <= 0) {
+      $('fb-plan-text').textContent = 'Отличный баланс! Ты в дефиците калорий. Не забудь попить воды!';
+    } else if (balance < 200) {
+      $('fb-plan-text').textContent = 'Почти в балансе! Небольшая прогулка поможет снизить профицит.';
     } else {
-      $('fb-plan-text').textContent = 'Норма набрана! Погуляй или сделай зарядку — это поможет усвоению.';
+      $('fb-plan-text').textContent = 'Есть профицит калорий. Прогулка или зарядка помогут его сбалансировать!';
     }
   }
 }
@@ -2679,6 +2696,10 @@ let _foodOverrideDate = null;
 function changeDay(delta) {
   const d = new Date(S.diaryDate);
   d.setDate(d.getDate() + delta);
+  // Block navigation to future dates
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  if (d > today) { toast('Нельзя перейти на будущую дату'); return; }
   S.diaryDate = d;
   renderDiary();
 }
@@ -2824,6 +2845,13 @@ function renderDiary() {
   }
 
   cont.innerHTML = html;
+
+  // Hide add buttons for future dates
+  const addBtns = $('diary-add-buttons');
+  if (addBtns) {
+    const isFuture = fmtDate(d) > fmtDate(new Date());
+    addBtns.style.display = isFuture ? 'none' : 'flex';
+  }
 }
 
 function renderEntry(e, showDel) {
@@ -2865,20 +2893,31 @@ function deleteEntry(id) {
 // ──────────────────────────────────────────
 function renderStats() {
   const all = getEntries();
+  const allActs = getActivities();
+  const norm = S.dailyNorms.cal || 2000;
+  const bmr  = S.dailyNorms.bmr || 1500;
 
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const d     = new Date(); d.setDate(d.getDate() - i);
     const items = all.filter(e => e.date === fmtDate(d));
-    days.push({ date: d, items, t: totals(items) });
+    const dayActs = allActs.filter(a => a.date === fmtDate(d));
+    const actBurn = dayActs.reduce((s, a) => s + (a.calBurned || 0), 0);
+    const isToday = fmtDate(d) === fmtDate(new Date());
+    // For past days, full BMR; for today, proportional to time
+    const dayBmr = isToday ? Math.round(bmr * (new Date().getHours() * 60 + new Date().getMinutes()) / 1440) : bmr;
+    const totalBurned = actBurn + dayBmr;
+    const t = totals(items);
+    const balance = t.cal - totalBurned; // positive = surplus, negative = deficit
+    days.push({ date: d, items, t, actBurn, dayBmr, totalBurned, balance, isToday });
   }
 
-  const maxCal = Math.max(...days.map(d => d.t.cal), 1);
   const avg    = arr => Math.round(arr.reduce((s, x) => s + x, 0) / arr.length);
   const avgCal = avg(days.map(d => d.t.cal));
   const avgP   = avg(days.map(d => d.t.p));
   const avgF   = avg(days.map(d => d.t.f));
   const avgC   = avg(days.map(d => d.t.c));
+  const avgBalance = avg(days.map(d => d.balance));
 
   let gn = 0, yw = 0, rd = 0;
   all.slice(-50).forEach(e => {
@@ -2893,7 +2932,54 @@ function renderStats() {
 
   const MON = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
 
+  // ── Deficit/Surplus chart (MAIN) ──
+  const maxAbs = Math.max(...days.map(d => Math.abs(d.balance)), 1);
+  const deficitChart = days.map(d => {
+    const label = d.date.getDate() + ' ' + MON[d.date.getMonth()];
+    const pctW = Math.min(Math.round(Math.abs(d.balance) / maxAbs * 100), 100);
+    const isDeficit = d.balance <= 0;
+    const color = isDeficit ? 'var(--healthy)' : (d.balance > norm * 0.2 ? 'var(--unhealthy)' : 'var(--moderate)');
+    const sign = d.balance > 0 ? '+' : '';
+    const val = d.t.cal > 0 ? sign + d.balance : '—';
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="width:45px;font-size:12px;font-weight:${d.isToday ? 800 : 400};color:var(--text);text-align:right;flex-shrink:0">${label}</div>
+      <div style="flex:1;height:22px;border-radius:6px;background:var(--bg);position:relative;overflow:hidden">
+        <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border);z-index:1"></div>
+        ${d.t.cal > 0 ? (isDeficit
+          ? `<div style="position:absolute;right:50%;top:2px;bottom:2px;width:${pctW/2}%;background:${color};border-radius:4px;transition:width 0.3s"></div>`
+          : `<div style="position:absolute;left:50%;top:2px;bottom:2px;width:${pctW/2}%;background:${color};border-radius:4px;transition:width 0.3s"></div>`)
+        : ''}
+      </div>
+      <div style="width:55px;font-size:11px;font-weight:700;color:${d.t.cal > 0 ? color : 'var(--text-muted)'};text-align:right;flex-shrink:0">${val}</div>
+    </div>`;
+  }).join('');
+
   $('stats-content').innerHTML = `
+    <div class="card">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:6px">📊 Дефицит / Профицит калорий</h3>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">
+        Баланс = Съедено − Сожжено (BMR + активность).
+        <span style="color:var(--healthy)">● Дефицит</span> ·
+        <span style="color:var(--unhealthy)">● Профицит</span> ·
+        Пунктир — норма ${norm} ккал
+      </div>
+      ${deficitChart}
+      <div style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="text-align:center;flex:1">
+          <div style="font-size:18px;font-weight:800;color:${avgBalance <= 0 ? 'var(--healthy)' : 'var(--unhealthy)'}">${avgBalance > 0 ? '+' : ''}${avgBalance}</div>
+          <div style="font-size:10px;color:var(--text-muted)">Средний баланс</div>
+        </div>
+        <div style="text-align:center;flex:1">
+          <div style="font-size:18px;font-weight:800">${avgCal}</div>
+          <div style="font-size:10px;color:var(--text-muted)">Ср. калории</div>
+        </div>
+        <div style="text-align:center;flex:1">
+          <div style="font-size:18px;font-weight:800;color:var(--secondary)">${avg(days.map(d => d.totalBurned))}</div>
+          <div style="font-size:10px;color:var(--text-muted)">Ср. сожжено</div>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🎯 Среднее за 7 дней</h3>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
@@ -2930,47 +3016,19 @@ function renderStats() {
     </div>
 
     <div class="card">
-      <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">📅 Калории по дням</h3>
-      ${days.map(d => {
-        const isToday = fmtDate(d.date) === fmtDate(new Date());
-        const pct     = d.t.cal > 0 ? Math.max(Math.round(d.t.cal / maxCal * 100), 4) : 0;
-        const label   = `${d.date.getDate()} ${MON[d.date.getMonth()]}`;
-        return `
-          <div class="stat-bar-wrap">
-            <div class="stat-bar-row">
-              <div class="stat-bar-label" style="font-weight:${isToday ? 800 : 400}">${label}</div>
-              <div class="stat-bar-bg">
-                <div class="stat-bar-fill"
-                     style="width:${pct}%;background:${isToday ? 'var(--primary)' : 'var(--secondary)'}">
-                  ${d.t.cal > 0 ? d.t.cal : ''}
-                </div>
-              </div>
-            </div>
-          </div>`;
-      }).join('')}
-    </div>
-
-    <div class="card">
       <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🏃 Активность за 7 дней</h3>
       ${(() => {
-        const allActs = getActivities();
-        const actDays = days.map(d => {
-          const dayActs = allActs.filter(a => a.date === fmtDate(d.date));
-          const burned  = dayActs.reduce((s, a) => s + (a.calBurned || 0), 0);
-          return { date: d.date, burned, count: dayActs.length };
-        });
-        const maxB = Math.max(...actDays.map(d => d.burned), 1);
-        const totalBurned = actDays.reduce((s, d) => s + d.burned, 0);
-        if (!totalBurned) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Нет записей об активности</div>';
-        return actDays.map(d => {
-          const isToday = fmtDate(d.date) === fmtDate(new Date());
-          const pct = d.burned > 0 ? Math.max(Math.round(d.burned / maxB * 100), 4) : 0;
+        const totalActBurned = days.reduce((s, d) => s + d.actBurn, 0);
+        if (!totalActBurned) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Нет записей об активности</div>';
+        const maxB = Math.max(...days.map(d => d.actBurn), 1);
+        return days.map(d => {
+          const pct = d.actBurn > 0 ? Math.max(Math.round(d.actBurn / maxB * 100), 4) : 0;
           const label = d.date.getDate() + ' ' + MON[d.date.getMonth()];
           return '<div class="stat-bar-wrap"><div class="stat-bar-row">' +
-            '<div class="stat-bar-label" style="font-weight:' + (isToday ? 800 : 400) + '">' + label + '</div>' +
+            '<div class="stat-bar-label" style="font-weight:' + (d.isToday ? 800 : 400) + '">' + label + '</div>' +
             '<div class="stat-bar-bg"><div class="stat-bar-fill" style="width:' + pct + '%;background:var(--secondary)">' +
-            (d.burned > 0 ? '−' + d.burned : '') + '</div></div></div></div>';
-        }).join('') + '<div style="text-align:center;margin-top:8px;font-size:13px;color:var(--secondary);font-weight:700">Всего сожжено: ' + totalBurned + ' ккал</div>';
+            (d.actBurn > 0 ? '−' + d.actBurn : '') + '</div></div></div></div>';
+        }).join('') + '<div style="text-align:center;margin-top:8px;font-size:13px;color:var(--secondary);font-weight:700">Всего сожжено тренировками: ' + totalActBurned + ' ккал</div>';
       })()}
     </div>
 
@@ -3254,9 +3312,18 @@ const FIREBASE_CONFIG = {
 };
 
 let _fb = null, _fbAuth = null, _fbDb = null, _fbUser = null;
+function isFirebaseConfigured() {
+  return FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.includes('placeholder') &&
+         FIREBASE_CONFIG.appId && !FIREBASE_CONFIG.appId.includes('placeholder');
+}
+
 function initFirebase() {
   try {
     if (typeof firebase === 'undefined') return false;
+    if (!isFirebaseConfigured()) {
+      console.warn('Firebase: placeholder config detected, cloud features disabled');
+      return false;
+    }
     _fb = firebase.initializeApp(FIREBASE_CONFIG);
     _fbAuth = firebase.auth();
     _fbDb = firebase.firestore();
@@ -3277,6 +3344,21 @@ function updateAuthUI() {
   const loggedIn  = $('auth-logged-in');
   if (!loggedOut || !loggedIn) return;
 
+  if (!isFirebaseConfigured()) {
+    loggedOut.style.display = 'block';
+    loggedIn.style.display = 'none';
+    // Show info that Firebase is not configured
+    const info = loggedOut.querySelector('.firebase-info');
+    if (!info) {
+      const div = document.createElement('div');
+      div.className = 'firebase-info';
+      div.style.cssText = 'background:var(--bg);border-radius:12px;padding:12px;margin-bottom:10px;font-size:12px;color:var(--text-muted)';
+      div.innerHTML = '⚠️ Облачная синхронизация не настроена. Для хранения данных в облаке необходимо создать проект Firebase и указать его конфигурацию. Пока используйте локальный экспорт/импорт ниже.';
+      loggedOut.insertBefore(div, loggedOut.firstChild);
+    }
+    return;
+  }
+
   if (_fbUser) {
     loggedOut.style.display = 'none';
     loggedIn.style.display = 'block';
@@ -3295,6 +3377,10 @@ async function cloudSignIn() {
   const email = $('auth-email').value.trim();
   if (!email || !email.includes('@')) { toast('Введи корректный email'); return; }
 
+  if (!isFirebaseConfigured()) {
+    toast('⚠️ Облачная синхронизация пока не настроена. Используйте локальный экспорт/импорт.');
+    return;
+  }
   if (!_fbAuth) { toast('Firebase не инициализирован. Настройте проект Firebase.'); return; }
 
   try {
