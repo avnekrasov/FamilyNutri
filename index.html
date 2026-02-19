@@ -709,7 +709,12 @@ body {
     </div>
 
     <button class="btn btn-primary" onclick="nav('main')">🏠 На главную</button>
-    <button class="btn btn-ghost" onclick="triggerCamera()">📸 Записать ещё</button>
+    <p style="text-align:center;color:var(--text-muted);font-size:13px;font-weight:600;margin-top:16px;margin-bottom:10px">Записать ещё:</p>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-ghost" style="flex:1;font-size:14px;padding:14px 8px" onclick="triggerCamera()">📸 Фото</button>
+      <button class="btn btn-ghost" style="flex:1;font-size:14px;padding:14px 8px" onclick="startVoiceFood()">🎤 Голос</button>
+      <button class="btn btn-ghost" style="flex:1;font-size:14px;padding:14px 8px" onclick="startTextFood()">✏️ Текст</button>
+    </div>
   </div>
 </div>
 
