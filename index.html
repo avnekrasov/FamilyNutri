@@ -1239,57 +1239,65 @@ async function geminiRequest(prompt, imageBase64) {
   return doRequest(false);
 }
 
-function parseAIJson(text) {
-  // Extract JSON block
+function parseAIJson(rawText) {
+  // Step 0: Normalize — collapse all whitespace (newlines break JSON strings)
+  let text = rawText.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Step 1: Extract {...} block
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
-  let json = (start !== -1 && end > start) ? text.slice(start, end + 1) : text;
+  if (start === -1 || end <= start) {
+    console.error('No JSON block found:', text);
+    throw new Error('AI не вернул JSON');
+  }
+  let json = text.slice(start, end + 1);
 
-  // 1. Direct parse
+  // Step 2: Direct parse
   try { return JSON.parse(json); } catch(e1) {
-    console.warn('Parse attempt 1 failed:', e1.message);
+    console.warn('Direct parse failed:', e1.message);
   }
 
-  // 2. Fix common Gemini issues
+  // Step 3: Aggressive cleanup
   let cleaned = json
-    .replace(/\n/g, ' ')                          // remove newlines inside strings
-    .replace(/,\s*([}\]])/g, '$1')                 // trailing commas
-    .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":')     // unquoted keys
-    .replace(/:\s*'([^']*)'/g, ': "$1"')            // single quotes → double
-    .replace(/:\s*(\d+)\s*[а-яА-Яa-zA-Z]+/g, ': $1') // "calories: 350 ккал" → "calories: 350"
-    .replace(/\u00a0/g, ' ');                       // non-breaking spaces
+    .replace(/,\s*([}\]])/g, '$1')                    // trailing commas
+    .replace(/([{,]\s*)([a-z_]\w*)\s*:/gi, '$1"$2":') // unquoted keys
+    .replace(/:\s*'([^']*)'/g, ': "$1"')               // single → double quotes
+    .replace(/:\s*(\d+)\s*[а-яА-Яa-zA-Z%]+/g, ': $1') // "350 ккал" → 350
+    .replace(/\u00a0/g, ' ');                           // nbsp
   try { return JSON.parse(cleaned); } catch(e2) {
-    console.warn('Parse attempt 2 failed:', e2.message);
+    console.warn('Cleaned parse failed:', e2.message, '\n', cleaned.slice(0, 200));
   }
 
-  // 3. Regex extraction as last resort — build object manually
-  try {
-    const get = (key) => {
-      const m = json.match(new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`, 'i'))
-             || json.match(new RegExp(`"${key}"\\s*:\\s*([\\d.]+)`, 'i'));
-      return m ? m[1] : null;
-    };
-    const result = {
-      dish_name:      get('dish_name') || 'Неизвестное блюдо',
-      portion:        get('portion') || '',
-      emoji:          get('emoji') || '🍽️',
-      calories:       parseInt(get('calories')) || 0,
-      proteins:       parseInt(get('proteins')) || 0,
-      fats:           parseInt(get('fats')) || 0,
-      carbs:          parseInt(get('carbs')) || 0,
-      health_score:   parseInt(get('health_score')) || 5,
-      health_color:   get('health_color') || 'yellow',
-      health_comment: get('health_comment') || '',
-      question:       get('question') || '',
-    };
-    if (result.dish_name !== 'Неизвестное блюдо' || result.calories > 0) {
-      console.log('Parsed via regex fallback:', result);
-      return result;
-    }
-  } catch {}
+  // Step 4: Regex field extraction — works even with broken JSON
+  const getStr = (key) => {
+    const m = json.match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
+    return m ? m[1].replace(/\\"/g, '"').replace(/\\n/g, ' ') : '';
+  };
+  const getNum = (key) => {
+    const m = json.match(new RegExp(`"${key}"\\s*:\\s*(\\d+)`));
+    return m ? parseInt(m[1]) : 0;
+  };
 
-  console.error('All parse attempts failed. Raw:', text);
-  alert('DEBUG: AI ответ:\n' + text.slice(0, 500));
+  const result = {
+    dish_name:      getStr('dish_name') || 'Блюдо',
+    portion:        getStr('portion'),
+    emoji:          getStr('emoji') || '🍽️',
+    calories:       getNum('calories'),
+    proteins:       getNum('proteins'),
+    fats:           getNum('fats'),
+    carbs:          getNum('carbs'),
+    health_score:   getNum('health_score') || 5,
+    health_color:   getStr('health_color') || 'yellow',
+    health_comment: getStr('health_comment'),
+    question:       getStr('question'),
+  };
+
+  if (result.dish_name !== 'Блюдо' || result.calories > 0) {
+    console.log('Parsed via regex fallback:', result);
+    return result;
+  }
+
+  console.error('All parse attempts failed. Raw:', rawText);
   throw new Error('Не удалось разобрать ответ AI');
 }
 
