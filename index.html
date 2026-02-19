@@ -637,36 +637,6 @@ body {
 <!-- ══════════════════════════════════════════
      SCREEN: LOADING
 ══════════════════════════════════════════ -->
-<!-- ══════════════════════════════════════════
-     SCREEN: PHOTO DESCRIBE (before analysis)
-══════════════════════════════════════════ -->
-<div id="screen-photo-describe" class="screen">
-  <div class="header">
-    <div class="header-row">
-      <button class="back-btn" onclick="nav('main')">←</button>
-      <div class="title-block">
-        <h1 style="font-size:18px">📸 Описание фото</h1>
-        <div class="subtitle">Уточни что на фото для точности</div>
-      </div>
-    </div>
-  </div>
-  <div class="content padded-bottom">
-    <img id="photo-describe-img" src="" alt="" style="width:100%;max-height:280px;object-fit:contain;border-radius:16px;margin-bottom:14px">
-    <div class="card">
-      <div class="form-group" style="margin-bottom:12px">
-        <label>Что это? (необязательно, но повысит точность)</label>
-        <div class="input-with-voice">
-          <input type="text" id="photo-describe-text" placeholder="Например: гречка с курицей и салат" style="padding:14px;border:2px solid var(--border);border-radius:14px;font-size:16px;width:100%;font-family:inherit;outline:none"
-                 onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
-          <button class="voice-btn" onclick="voiceToField('photo-describe-text')" title="Голосовой ввод">🎤</button>
-        </div>
-      </div>
-      <button class="btn btn-primary" style="font-size:17px;padding:16px" onclick="sendPhotoWithDescription()">🔍 Распознать</button>
-      <button class="btn btn-ghost" style="margin-top:8px" onclick="sendPhotoWithDescription()">Пропустить описание →</button>
-    </div>
-  </div>
-</div>
-
 <div id="screen-loading" class="screen">
   <div class="loading-wrap">
     <div class="loading-emoji">🤔</div>
@@ -726,17 +696,30 @@ body {
     </div>
 
     <div class="confirm-actions">
-      <button class="btn btn-primary" style="font-size:17px;padding:18px" onclick="confirmYes()">✅ Да, всё верно!</button>
-      <button class="btn btn-secondary" onclick="confirmVoice()">🎤 Ответить голосом</button>
-      <button class="btn btn-ghost" onclick="confirmEdit()">✏️ Нет, исправить</button>
-      <button class="btn btn-ghost" onclick="confirmRetake()" style="font-size:14px">📸 Переснять фото</button>
+      <button class="btn btn-primary" style="font-size:17px;padding:18px" onclick="confirmYes()">✅ Да, сохранить!</button>
+      <button class="btn btn-ghost" onclick="confirmEdit()">✏️ Исправить вручную</button>
+    </div>
+
+    <!-- Describe & re-analyze -->
+    <div class="card" style="margin-top:12px">
+      <div class="form-group" style="margin-bottom:8px">
+        <label>Неправильно определил? Напиши что это:</label>
+        <div style="display:flex;gap:8px">
+          <div class="input-with-voice" style="flex:1">
+            <input type="text" id="confirm-describe" placeholder="Например: гречка с курицей" style="padding:12px;border:2px solid var(--border);border-radius:12px;font-size:15px;width:100%;font-family:inherit;outline:none"
+                   onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
+            <button class="voice-btn" onclick="voiceToField('confirm-describe')" title="Голосовой ввод">🎤</button>
+          </div>
+          <button class="btn btn-secondary" style="width:auto;padding:12px 16px;font-size:14px;border-radius:12px;white-space:nowrap" onclick="reanalyzeWithDescription()">🔄</button>
+        </div>
+      </div>
     </div>
 
     <div class="confirm-listening hidden" id="confirm-listening">
       🔴 Слушаю... Скажи «да» или «нет, это каша»
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card" style="margin-top:10px">
       <div class="form-group" style="margin-bottom:0">
         <label>Комментарий (необязательно)</label>
         <div class="input-with-voice">
@@ -1458,17 +1441,30 @@ function onPhotoSelected(ev) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = async e => {
+    showScreen('loading');
     try {
-      const compressed = await compressImg(e.target.result, 900, 0.82);
-      S.capturedImg    = compressed;
-      S.analysisResult = null;
-      // Show describe screen instead of immediately sending
-      $('photo-describe-img').src = compressed;
-      $('photo-describe-text').value = '';
-      showScreen('photo-describe');
+      const compressed     = await compressImg(e.target.result, 900, 0.82);
+      S.capturedImg        = compressed;
+      S.analysisResult     = null;
+      const result         = await analyzeFood(compressed);
+      S.analysisResult     = result;
+      fillConfirmScreen(result, compressed);
+      fillResultScreen(result, compressed);
+      showScreen('confirm');
+      setTimeout(() => speak(`Я вижу ${result.dish_name}. Это правильно?`), 700);
     } catch (err) {
-      toast('❌ Ошибка обработки фото');
-      console.error(err);
+      console.error('Photo analysis error:', err);
+      showScreen('main');
+      const msg = err.message || '';
+      if (msg.includes('API_KEY') || msg.includes('401') || msg.includes('403')) {
+        toast('❌ Неверный API ключ. Проверь в Настройках.');
+      } else if (msg.includes('quota') || msg.includes('429')) {
+        toast('⏳ Превышен лимит запросов. Подожди минуту.');
+      } else if (msg.includes('разобрать') || msg.includes('Не удалось')) {
+        toast('🔄 ' + msg.slice(0, 100));
+      } else {
+        toast('❌ ' + (msg.slice(0, 100) || 'нет интернета?'));
+      }
     }
   };
   reader.readAsDataURL(file);
@@ -1745,9 +1741,10 @@ function parseAIJson(rawText) {
 // ──────────────────────────────────────────
 // GEMINI AI ANALYSIS
 // ──────────────────────────────────────────
-async function sendPhotoWithDescription() {
-  if (!S.capturedImg) { toast('Нет фото'); nav('main'); return; }
-  const desc = ($('photo-describe-text').value || '').trim();
+async function reanalyzeWithDescription() {
+  const desc = ($('confirm-describe').value || '').trim();
+  if (!desc) { toast('Напиши что это за блюдо'); return; }
+  if (!S.capturedImg) { toast('Нет фото для анализа'); return; }
   showScreen('loading');
   try {
     const result = await analyzeFood(S.capturedImg, desc);
@@ -1755,20 +1752,11 @@ async function sendPhotoWithDescription() {
     fillConfirmScreen(result, S.capturedImg);
     fillResultScreen(result, S.capturedImg);
     showScreen('confirm');
-    setTimeout(() => speak(`Я вижу ${result.dish_name}. Это правильно?`), 700);
+    toast('✅ Пересчитано!');
   } catch (err) {
-    console.error('Photo analysis error:', err);
-    showScreen('main');
-    const msg = err.message || '';
-    if (msg.includes('API_KEY') || msg.includes('401') || msg.includes('403')) {
-      toast('❌ Неверный API ключ. Проверь в Настройках.');
-    } else if (msg.includes('quota') || msg.includes('429')) {
-      toast('⏳ Превышен лимит запросов. Подожди минуту.');
-    } else if (msg.includes('разобрать') || msg.includes('Не удалось')) {
-      toast('🔄 ' + msg.slice(0, 100));
-    } else {
-      toast('❌ ' + (msg.slice(0, 100) || 'нет интернета?'));
-    }
+    console.error('Re-analyze error:', err);
+    showScreen('confirm'); // stay on confirm, not go to main
+    toast('❌ ' + (err.message || 'Ошибка').slice(0, 80));
   }
 }
 
@@ -2042,7 +2030,7 @@ function autoDetectMealType() {
 
 async function autoSaveFromConfirm() {
   const r = S.analysisResult;
-  if (!r) return;
+  if (!r) { toast('❌ Нет данных для сохранения'); nav('main'); return; }
 
   let thumb = null;
   if (S.capturedImg) {
