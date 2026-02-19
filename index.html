@@ -430,6 +430,29 @@ body {
 }
 .or-divider .line { height: 1px; flex: 1; max-width: 60px; background: var(--border); }
 .or-divider span { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+
+/* ── ACTIVITY ── */
+.activity-grid {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0;
+}
+.activity-chip {
+  padding: 10px 14px; border-radius: 20px; font-size: 14px; font-weight: 600;
+  border: 2px solid var(--border); background: var(--card); cursor: pointer;
+  transition: all 0.15s; color: var(--text);
+}
+.activity-chip:active { transform: scale(0.95); }
+.activity-chip.selected { border-color: var(--secondary); background: #E8F8F5; color: #1A7A40; }
+.duration-grid {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0;
+}
+.duration-chip {
+  padding: 8px 16px; border-radius: 14px; font-size: 13px; font-weight: 700;
+  border: 2px solid var(--border); background: var(--card); cursor: pointer;
+  transition: all 0.15s; color: var(--text);
+}
+.duration-chip.selected { border-color: var(--primary); background: #FFF0F0; color: var(--primary-dark); }
+.balance-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 13px; }
+.balance-row .b-val { font-weight: 700; }
 </style>
 </head>
 <body>
@@ -559,6 +582,65 @@ body {
       </div>
       <p style="color:var(--text-muted);margin-top:10px;font-size:13px">Опиши что ты съел</p>
     </div>
+
+    <!-- DAILY WEIGHT -->
+    <div class="card" id="main-weight-card">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <h3 style="font-size:15px;font-weight:800">⚖️ Вес сегодня</h3>
+        <span style="font-size:12px;color:var(--text-muted)" id="weight-trend"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+        <input type="number" id="weight-today-input" placeholder="кг" step="0.1" min="20" max="300"
+               style="flex:1;padding:12px;border:2px solid var(--border);border-radius:14px;font-size:18px;font-weight:700;text-align:center;font-family:inherit;outline:none"
+               onfocus="this.style.borderColor='var(--secondary)'" onblur="this.style.borderColor='var(--border)'">
+        <button class="btn btn-secondary" style="width:auto;padding:12px 20px;border-radius:14px;font-size:14px" onclick="saveWeight()">💾</button>
+      </div>
+      <div id="weight-mini-chart" style="margin-top:10px;font-size:12px;color:var(--text-muted)"></div>
+    </div>
+
+    <!-- BALANCE CARD: eaten / burned / remaining -->
+    <div class="card" id="main-balance-card" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h3 style="font-size:15px;font-weight:800">⚖️ Баланс дня</h3>
+        <span style="font-size:12px;color:var(--text-muted)" id="main-norm-label">Норма: —</span>
+      </div>
+      <div class="balance-row">
+        <div style="text-align:center;flex:1">
+          <div style="font-size:22px">🍽️</div>
+          <div class="b-val" id="bal-eaten">0</div>
+          <div style="font-size:11px;color:var(--text-muted)">Съедено</div>
+        </div>
+        <div style="text-align:center;flex:1">
+          <div style="font-size:22px">🔥</div>
+          <div class="b-val" style="color:var(--secondary)" id="bal-burned">0</div>
+          <div style="font-size:11px;color:var(--text-muted)">Сожжено</div>
+        </div>
+        <div style="text-align:center;flex:1">
+          <div style="font-size:22px">🎯</div>
+          <div class="b-val" id="bal-remaining">0</div>
+          <div style="font-size:11px;color:var(--text-muted)">Осталось</div>
+        </div>
+      </div>
+      <div id="main-balance-bar" style="height:8px;border-radius:4px;background:var(--border);margin-top:12px;overflow:hidden">
+        <div id="bal-bar-fill" style="height:100%;border-radius:4px;transition:width 0.4s;width:0%"></div>
+      </div>
+    </div>
+
+    <!-- DAILY RECOMMENDATIONS -->
+    <div class="card" id="main-recommendations" style="display:none">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:10px">💡 Рекомендации</h3>
+      <div id="reco-list" style="font-size:14px;line-height:1.6"></div>
+    </div>
+
+    <!-- ACTIVITY BUTTON -->
+    <div style="text-align:center;margin-bottom:14px">
+      <button class="btn btn-secondary" onclick="nav('activity')" style="display:inline-flex;align-items:center;gap:8px;width:auto;padding:12px 24px;border-radius:16px">
+        🏃 Записать активность
+      </button>
+    </div>
+
+    <!-- TODAY'S ACTIVITIES PREVIEW -->
+    <div id="main-activities-preview"></div>
 
     <div id="main-meals-preview"></div>
   </div>
@@ -715,6 +797,63 @@ body {
       <button class="btn btn-ghost" style="flex:1;font-size:14px;padding:14px 8px" onclick="startVoiceFood()">🎤 Голос</button>
       <button class="btn btn-ghost" style="flex:1;font-size:14px;padding:14px 8px" onclick="startTextFood()">✏️ Текст</button>
     </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SCREEN: ACTIVITY
+══════════════════════════════════════════ -->
+<div id="screen-activity" class="screen">
+  <div class="header" style="background:linear-gradient(135deg,var(--secondary),#45B7AA)">
+    <div class="header-row">
+      <button class="back-btn" onclick="nav('main')">←</button>
+      <div class="title-block">
+        <h1 style="font-size:18px">🏃 Активность</h1>
+        <div class="subtitle">Запиши что ты делал</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="content padded-bottom">
+    <div class="card">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:10px">Что делал?</h3>
+      <div class="activity-grid" id="activity-types">
+        <button class="activity-chip" data-type="walking" data-cal="3.8">🚶 Прогулка</button>
+        <button class="activity-chip" data-type="running" data-cal="10">🏃 Бег</button>
+        <button class="activity-chip" data-type="swimming" data-cal="7">🏊 Плавание</button>
+        <button class="activity-chip" data-type="football" data-cal="7">⚽ Футбол</button>
+        <button class="activity-chip" data-type="yoga" data-cal="3">🧘 Зарядка</button>
+        <button class="activity-chip" data-type="school_pe" data-cal="5">📚 Физкультура</button>
+        <button class="activity-chip" data-type="cycling" data-cal="6">🚴 Велосипед</button>
+        <button class="activity-chip" data-type="dancing" data-cal="5">💃 Танцы</button>
+        <button class="activity-chip" data-type="gym" data-cal="5">🏋️ Тренировка</button>
+        <button class="activity-chip" data-type="cleaning" data-cal="3.5">🧹 Уборка</button>
+        <button class="activity-chip" data-type="other" data-cal="4">➕ Другое</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:10px">Сколько по времени?</h3>
+      <div class="duration-grid" id="duration-options">
+        <button class="duration-chip" data-min="15">15 мин</button>
+        <button class="duration-chip" data-min="30">30 мин</button>
+        <button class="duration-chip" data-min="45">45 мин</button>
+        <button class="duration-chip" data-min="60">1 час</button>
+        <button class="duration-chip" data-min="90">1.5 часа</button>
+        <button class="duration-chip" data-min="120">2+ часа</button>
+      </div>
+    </div>
+
+    <div class="card" id="activity-preview" style="display:none;text-align:center">
+      <div style="font-size:40px" id="activity-preview-emoji">🏃</div>
+      <div style="font-size:18px;font-weight:800;margin:8px 0" id="activity-preview-name">Бег</div>
+      <div style="font-size:28px;font-weight:800;color:var(--secondary)" id="activity-preview-cal">0 ккал</div>
+      <div style="font-size:13px;color:var(--text-muted)">будет сожжено</div>
+    </div>
+
+    <button class="btn btn-secondary" id="activity-save-btn" style="display:none" onclick="saveActivity()">
+      💪 Записать активность
+    </button>
   </div>
 </div>
 
@@ -1046,6 +1185,14 @@ function nav(id) {
   if (id === 'main')     refreshMain();
   if (id === 'diary')  { S.diaryDate = new Date(); renderDiary(); }
   if (id === 'stats')    renderStats();
+  if (id === 'activity') {
+    // Reset activity screen state
+    _selActivityType = null;
+    _selDurationMin  = null;
+    document.querySelectorAll('.activity-chip.selected, .duration-chip.selected').forEach(b => b.classList.remove('selected'));
+    $('activity-preview').style.display = 'none';
+    $('activity-save-btn').style.display = 'none';
+  }
   if (id === 'settings') {
     $('settings-name').value         = S.childName;
     $('settings-gender').value       = S.gender || 'male';
@@ -1137,6 +1284,52 @@ function refreshMain() {
   $('main-f').textContent   = t.f;
   $('main-c').textContent   = t.c;
 
+  // ── Weight widget ──
+  refreshWeightWidget();
+
+  // ── Balance card ──
+  const burned    = todayBurnedCal();
+  const norm      = S.dailyNorms.cal || 2000;
+  const remaining = Math.max(0, norm - t.cal + burned);
+  const pct       = Math.min(100, Math.round(t.cal / norm * 100));
+  const balCard   = $('main-balance-card');
+  balCard.style.display = 'block';
+  $('main-norm-label').textContent = 'Норма: ' + norm + ' ккал';
+  $('bal-eaten').textContent    = t.cal + ' ккал';
+  $('bal-burned').textContent   = burned + ' ккал';
+  $('bal-remaining').textContent = remaining + ' ккал';
+  $('bal-remaining').style.color = remaining < norm * 0.1 ? 'var(--unhealthy)' : 'var(--text)';
+  const barFill = $('bal-bar-fill');
+  barFill.style.width = pct + '%';
+  barFill.style.background = pct > 100 ? 'var(--unhealthy)' : pct > 80 ? 'var(--moderate)' : 'var(--secondary)';
+
+  // ── Today activities preview ──
+  const acts = todayActivities();
+  const actPreview = $('main-activities-preview');
+  if (acts.length) {
+    actPreview.innerHTML =
+      `<div class="section-title">
+         Активности сегодня
+         <span style="font-size:13px;color:var(--secondary);font-weight:700">🔥 −${burned} ккал</span>
+       </div>` +
+      acts.map(a => `
+        <div class="meal-entry" style="border-left-color:var(--secondary)">
+          <div class="meal-thumb">${a.label.split(' ')[0]}</div>
+          <div class="meal-info">
+            <div class="meal-name">${esc(a.label.replace(/^[^\s]+\s*/, ''))}</div>
+            <div class="meal-time">${a.time} · ${a.duration} мин</div>
+          </div>
+          <div class="meal-right">
+            <div class="meal-calories" style="color:var(--secondary)">−${a.calBurned}</div>
+            <div class="meal-cal-label">ккал</div>
+            <button class="delete-btn" onclick="deleteActivity(${a.id})">🗑</button>
+          </div>
+        </div>`).join('');
+  } else {
+    actPreview.innerHTML = '';
+  }
+
+  // ── Meals preview ──
   const preview = $('main-meals-preview');
   if (!entries.length) {
     preview.innerHTML = `
@@ -1154,11 +1347,17 @@ function refreshMain() {
        </div>` +
       last.map(e => renderEntry(e, false)).join('');
   }
+
+  // ── Recommendations ──
+  renderRecommendations();
 }
 
 function speakTodaySummary() {
   const t = totals(todayEntries());
-  speak(`Сегодня ты съел ${t.cal} калорий. Белков ${t.p} граммов, жиров ${t.f}, углеводов ${t.c}.`);
+  const burned = todayBurnedCal();
+  let msg = `Сегодня ты съел ${t.cal} калорий. Белков ${t.p} граммов, жиров ${t.f}, углеводов ${t.c}.`;
+  if (burned > 0) msg += ` Сожжено активностями: ${burned} калорий.`;
+  speak(msg);
 }
 
 // ──────────────────────────────────────────
@@ -1824,6 +2023,288 @@ function updateNormsInfo() {
 }
 
 // ──────────────────────────────────────────
+// ACTIVITY MODULE
+// ──────────────────────────────────────────
+let _selActivityType = null;
+let _selDurationMin  = null;
+
+// Chip selection handlers
+document.querySelectorAll('#activity-types .activity-chip').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#activity-types .activity-chip').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    _selActivityType = {
+      type: btn.dataset.type,
+      cal:  parseFloat(btn.dataset.cal),
+      label: btn.textContent.trim()
+    };
+    updateActivityPreview();
+  });
+});
+
+document.querySelectorAll('#duration-options .duration-chip').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#duration-options .duration-chip').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    _selDurationMin = parseInt(btn.dataset.min);
+    updateActivityPreview();
+  });
+});
+
+function updateActivityPreview() {
+  const prev = $('activity-preview');
+  const saveBtn = $('activity-save-btn');
+  if (!_selActivityType || !_selDurationMin) {
+    prev.style.display = 'none';
+    saveBtn.style.display = 'none';
+    return;
+  }
+  const w = S.weightKg || 65;
+  const hours = _selDurationMin / 60;
+  const burned = Math.round(_selActivityType.cal * w * hours);
+  const emoji = _selActivityType.label.split(' ')[0];
+  const name  = _selActivityType.label.replace(/^[^\s]+\s*/, '');
+
+  $('activity-preview-emoji').textContent = emoji;
+  $('activity-preview-name').textContent  = name + ' · ' + _selDurationMin + ' мин';
+  $('activity-preview-cal').textContent   = burned + ' ккал';
+
+  prev.style.display = 'block';
+  saveBtn.style.display = 'block';
+}
+
+function saveActivity() {
+  if (!_selActivityType || !_selDurationMin) { toast('Выбери активность и время'); return; }
+
+  const w = S.weightKg || 65;
+  const hours = _selDurationMin / 60;
+  const burned = Math.round(_selActivityType.cal * w * hours);
+
+  const entry = {
+    id:       Date.now(),
+    date:     fmtDate(new Date()),
+    time:     fmtTime(new Date()),
+    type:     _selActivityType.type,
+    label:    _selActivityType.label,
+    duration: _selDurationMin,
+    calBurned: burned,
+  };
+
+  const all = getActivities();
+  all.push(entry);
+  localStorage.setItem('activity_entries', JSON.stringify(all));
+
+  // Reset selection
+  _selActivityType = null;
+  _selDurationMin  = null;
+  document.querySelectorAll('.activity-chip.selected, .duration-chip.selected').forEach(b => b.classList.remove('selected'));
+  $('activity-preview').style.display = 'none';
+  $('activity-save-btn').style.display = 'none';
+
+  toast('🏃 Активность записана! −' + burned + ' ккал');
+  nav('main');
+}
+
+function getActivities() {
+  try { return JSON.parse(localStorage.getItem('activity_entries') || '[]'); }
+  catch { return []; }
+}
+
+function todayActivities() {
+  const today = fmtDate(new Date());
+  return getActivities().filter(a => a.date === today);
+}
+
+function todayBurnedCal() {
+  return todayActivities().reduce((s, a) => s + (a.calBurned || 0), 0);
+}
+
+function deleteActivity(id) {
+  const all = getActivities().filter(a => a.id !== id);
+  localStorage.setItem('activity_entries', JSON.stringify(all));
+  refreshMain();
+  toast('Активность удалена');
+}
+
+// ──────────────────────────────────────────
+// DAILY WEIGHT TRACKING
+// ──────────────────────────────────────────
+function getWeightHistory() {
+  try { return JSON.parse(localStorage.getItem('weight_history') || '[]'); }
+  catch { return []; }
+}
+
+function saveWeight() {
+  const input = $('weight-today-input');
+  const val = parseFloat(input.value);
+  if (!val || val < 20 || val > 300) { toast('Введи корректный вес (20-300 кг)'); return; }
+
+  const today = fmtDate(new Date());
+  const history = getWeightHistory();
+  const idx = history.findIndex(w => w.date === today);
+  if (idx >= 0) {
+    history[idx].kg = val;
+  } else {
+    history.push({ date: today, kg: val });
+  }
+  localStorage.setItem('weight_history', JSON.stringify(history));
+
+  // Update profile weight & recalc norms
+  S.weightKg = val;
+  ls('user_weight', val);
+  S.dailyNorms = calcDailyNorms();
+
+  toast('⚖️ Вес записан: ' + val + ' кг');
+  refreshMain();
+}
+
+function refreshWeightWidget() {
+  const history = getWeightHistory();
+  const today   = fmtDate(new Date());
+  const todayW  = history.find(w => w.date === today);
+  const input   = $('weight-today-input');
+
+  if (todayW) {
+    input.value = todayW.kg;
+  } else if (S.weightKg) {
+    input.placeholder = S.weightKg + ' кг';
+    input.value = '';
+  }
+
+  // Trend indicator
+  const trend = $('weight-trend');
+  if (history.length >= 2) {
+    const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
+    const last = sorted[sorted.length - 1].kg;
+    const prev = sorted[sorted.length - 2].kg;
+    const diff = last - prev;
+    if (Math.abs(diff) < 0.05) {
+      trend.textContent = '→ стабильно';
+      trend.style.color = 'var(--secondary)';
+    } else if (diff > 0) {
+      trend.textContent = '↑ +' + diff.toFixed(1) + ' кг';
+      trend.style.color = 'var(--unhealthy)';
+    } else {
+      trend.textContent = '↓ ' + diff.toFixed(1) + ' кг';
+      trend.style.color = 'var(--healthy)';
+    }
+  } else {
+    trend.textContent = '';
+  }
+
+  // Mini chart (last 7 days)
+  const mini = $('weight-mini-chart');
+  const last7 = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const ds = fmtDate(d);
+    const w = history.find(h => h.date === ds);
+    last7.push({ date: d, kg: w ? w.kg : null });
+  }
+  const filled = last7.filter(d => d.kg !== null);
+  if (filled.length >= 2) {
+    const minW = Math.min(...filled.map(d => d.kg)) - 0.5;
+    const maxW = Math.max(...filled.map(d => d.kg)) + 0.5;
+    const range = maxW - minW || 1;
+    mini.innerHTML = '<div style="display:flex;align-items:flex-end;gap:4px;height:40px">' +
+      last7.map(d => {
+        if (d.kg === null) return '<div style="flex:1;height:2px;background:var(--border);border-radius:2px;align-self:flex-end"></div>';
+        const h = Math.max(8, Math.round((d.kg - minW) / range * 36));
+        const isToday = fmtDate(d.date) === fmtDate(new Date());
+        return `<div style="flex:1;height:${h}px;background:${isToday ? 'var(--secondary)' : 'var(--border)'};border-radius:3px;position:relative" title="${d.kg} кг"></div>`;
+      }).join('') + '</div>' +
+      `<div style="text-align:center;margin-top:4px">${filled[filled.length - 1].kg} кг</div>`;
+  } else {
+    mini.innerHTML = '';
+  }
+}
+
+// ──────────────────────────────────────────
+// DAILY RECOMMENDATIONS
+// ──────────────────────────────────────────
+function buildRecommendations() {
+  const entries = todayEntries();
+  const t       = totals(entries);
+  const burned  = todayBurnedCal();
+  const norm    = S.dailyNorms.cal || 2000;
+  const pNorm   = S.dailyNorms.p || 60;
+  const fNorm   = S.dailyNorms.f || 65;
+  const cNorm   = S.dailyNorms.c || 260;
+  const now     = new Date();
+  const hour    = now.getHours();
+  const remaining = norm - t.cal + burned;
+  const tips = [];
+
+  // Time-based meal suggestions
+  if (hour >= 7 && hour < 10 && !entries.some(e => e.mealType === 'breakfast')) {
+    tips.push('🌅 Время завтрака! Не пропускай — это запускает метаболизм.');
+  }
+  if (hour >= 12 && hour < 14 && !entries.some(e => e.mealType === 'lunch')) {
+    tips.push('🍲 Пора обедать! Выбирай что-то с белком и овощами.');
+  }
+  if (hour >= 17 && hour < 20 && !entries.some(e => e.mealType === 'dinner')) {
+    tips.push('🥗 Время ужина. Лёгкий ужин за 2-3 часа до сна — идеально.');
+  }
+
+  // Calorie balance
+  if (t.cal === 0 && hour > 10) {
+    tips.push('📝 Ты ещё ничего не записал сегодня. Запиши что ты ел!');
+  } else if (remaining > norm * 0.6 && hour > 14) {
+    tips.push(`⚠️ Ты съел мало — осталось ещё ${remaining} ккал до нормы. Не голодай!`);
+  } else if (remaining < 0) {
+    tips.push(`🔴 Норма превышена на ${Math.abs(remaining)} ккал. Воздержись от перекусов.`);
+  } else if (remaining < norm * 0.15 && remaining > 0) {
+    tips.push(`✅ Почти в норме! Осталось всего ${remaining} ккал. Лёгкий перекус — и порядок.`);
+  } else if (remaining > 0 && t.cal > 0) {
+    tips.push(`🎯 Осталось ${remaining} ккал. Ты на правильном пути!`);
+  }
+
+  // Macro balance
+  if (t.cal > 200) {
+    if (t.p < pNorm * 0.3 && hour > 12) {
+      tips.push('🥩 Мало белка! Добавь мясо, рыбу, яйца или творог.');
+    }
+    if (t.f > fNorm * 1.2) {
+      tips.push('🧈 Многовато жиров. Выбирай менее жирные блюда до конца дня.');
+    }
+    if (t.c > cNorm * 1.1 && remaining > 0) {
+      tips.push('🍞 Углеводов уже достаточно. Добавь белковый перекус.');
+    }
+  }
+
+  // Activity suggestions
+  if (burned === 0 && hour >= 10 && hour < 20) {
+    tips.push('🏃 Сегодня нет активности. Прогулка 30 мин сожжёт ~' + Math.round(3.8 * (S.weightKg || 65) * 0.5) + ' ккал!');
+  } else if (burned > 0) {
+    tips.push(`🔥 Отлично! Ты уже сжёг ${burned} ккал активностями!`);
+  }
+
+  // Evening advice
+  if (hour >= 21) {
+    tips.push('🌙 Вечер — старайся не есть за 2 часа до сна. Пей воду!');
+  }
+
+  // Water reminder
+  if (hour >= 11 && hour <= 20 && entries.length > 0) {
+    tips.push('💧 Не забывай пить воду — 6-8 стаканов в день.');
+  }
+
+  return tips.slice(0, 4); // max 4 tips
+}
+
+function renderRecommendations() {
+  const tips = buildRecommendations();
+  const card = $('main-recommendations');
+  const list = $('reco-list');
+  if (!tips.length) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = 'block';
+  list.innerHTML = tips.map(t => `<div style="padding:6px 0;border-bottom:1px solid var(--border)">${t}</div>`).join('');
+}
+
+// ──────────────────────────────────────────
 // FEEDBACK SCREEN
 // ──────────────────────────────────────────
 
@@ -2023,6 +2504,48 @@ function renderDiary() {
     </div>`;
   });
 
+  // Activities for this day
+  const dayActivities = getActivities().filter(a => a.date === fmtDate(d));
+  if (dayActivities.length) {
+    const totalBurned = dayActivities.reduce((s, a) => s + (a.calBurned || 0), 0);
+    html += `<div class="diary-section">
+      <div class="diary-section-title">🏃 Активности (−${totalBurned} ккал)</div>
+      ${dayActivities.map(a => `
+        <div class="meal-entry" style="border-left-color:var(--secondary)">
+          <div class="meal-thumb">${a.label.split(' ')[0]}</div>
+          <div class="meal-info">
+            <div class="meal-name">${esc(a.label.replace(/^[^\s]+\s*/, ''))}</div>
+            <div class="meal-time">${a.time} · ${a.duration} мин</div>
+          </div>
+          <div class="meal-right">
+            <div class="meal-calories" style="color:var(--secondary)">−${a.calBurned}</div>
+            <div class="meal-cal-label">ккал</div>
+            <button class="delete-btn" onclick="deleteActivity(${a.id});renderDiary()">🗑️</button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }
+
+  // Weight for this day
+  const dayWeight = getWeightHistory().find(w => w.date === fmtDate(d));
+  if (dayWeight) {
+    html += `
+    <div class="diary-section">
+      <div class="diary-section-title">⚖️ Вес</div>
+      <div class="meal-entry" style="border-left-color:#9B59B6">
+        <div class="meal-thumb">⚖️</div>
+        <div class="meal-info">
+          <div class="meal-name">Вес за день</div>
+          <div class="meal-time">${fmtDate(d)}</div>
+        </div>
+        <div class="meal-right">
+          <div class="meal-calories" style="color:#9B59B6">${dayWeight.kg}</div>
+          <div class="meal-cal-label">кг</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
   cont.innerHTML = html;
 }
 
@@ -2148,6 +2671,62 @@ function renderStats() {
             </div>
           </div>`;
       }).join('')}
+    </div>
+
+    <div class="card">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🏃 Активность за 7 дней</h3>
+      ${(() => {
+        const allActs = getActivities();
+        const actDays = days.map(d => {
+          const dayActs = allActs.filter(a => a.date === fmtDate(d.date));
+          const burned  = dayActs.reduce((s, a) => s + (a.calBurned || 0), 0);
+          return { date: d.date, burned, count: dayActs.length };
+        });
+        const maxB = Math.max(...actDays.map(d => d.burned), 1);
+        const totalBurned = actDays.reduce((s, d) => s + d.burned, 0);
+        if (!totalBurned) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Нет записей об активности</div>';
+        return actDays.map(d => {
+          const isToday = fmtDate(d.date) === fmtDate(new Date());
+          const pct = d.burned > 0 ? Math.max(Math.round(d.burned / maxB * 100), 4) : 0;
+          const label = d.date.getDate() + ' ' + MON[d.date.getMonth()];
+          return '<div class="stat-bar-wrap"><div class="stat-bar-row">' +
+            '<div class="stat-bar-label" style="font-weight:' + (isToday ? 800 : 400) + '">' + label + '</div>' +
+            '<div class="stat-bar-bg"><div class="stat-bar-fill" style="width:' + pct + '%;background:var(--secondary)">' +
+            (d.burned > 0 ? '−' + d.burned : '') + '</div></div></div></div>';
+        }).join('') + '<div style="text-align:center;margin-top:8px;font-size:13px;color:var(--secondary);font-weight:700">Всего сожжено: ' + totalBurned + ' ккал</div>';
+      })()}
+    </div>
+
+    <div class="card">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">⚖️ Динамика веса</h3>
+      ${(() => {
+        const wh = getWeightHistory().sort((a, b) => a.date.localeCompare(b.date));
+        const last14 = wh.slice(-14);
+        if (last14.length < 2) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Недостаточно данных (нужно минимум 2 записи)</div>';
+        const minW = Math.min(...last14.map(w => w.kg)) - 0.3;
+        const maxW = Math.max(...last14.map(w => w.kg)) + 0.3;
+        const range = maxW - minW || 1;
+        const first = last14[0].kg;
+        const last = last14[last14.length - 1].kg;
+        const diff = last - first;
+        const diffStr = diff > 0 ? '+' + diff.toFixed(1) : diff.toFixed(1);
+        const diffColor = Math.abs(diff) < 0.1 ? 'var(--secondary)' : diff > 0 ? 'var(--unhealthy)' : 'var(--healthy)';
+        return '<div style="display:flex;align-items:flex-end;gap:3px;height:60px;margin-bottom:8px">' +
+          last14.map((w, i) => {
+            const h = Math.max(8, Math.round((w.kg - minW) / range * 56));
+            const isLast = i === last14.length - 1;
+            return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">' +
+              (isLast ? '<div style="font-size:10px;font-weight:700;color:var(--text);margin-bottom:2px">' + w.kg + '</div>' : '') +
+              '<div style="width:100%;height:' + h + 'px;background:' + (isLast ? '#9B59B6' : 'var(--border)') + ';border-radius:3px"></div>' +
+              '</div>';
+          }).join('') +
+          '</div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted)">' +
+          '<span>' + last14[0].date.slice(5) + '</span>' +
+          '<span style="font-weight:700;color:' + diffColor + '">' + diffStr + ' кг за период</span>' +
+          '<span>' + last14[last14.length - 1].date.slice(5) + '</span>' +
+          '</div>';
+      })()}
     </div>`;
 }
 
