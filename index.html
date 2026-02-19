@@ -1197,7 +1197,7 @@ async function geminiRequest(prompt, imageBase64) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 600 }
+          generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
         })
       }
     );
@@ -1251,11 +1251,18 @@ function parseAIJson(rawText) {
 
   // Step 1: Extract {...} block
   const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end <= start) {
-    console.error('No JSON block found in:', text);
-    alert('DEBUG — нет JSON в ответе AI:\n' + rawText.slice(0, 500));
+  let end = text.lastIndexOf('}');
+
+  if (start === -1) {
+    console.error('No { found in:', text);
     throw new Error('AI не вернул JSON');
+  }
+
+  // If JSON is truncated (no closing }), try to close it
+  if (end <= start) {
+    console.warn('Truncated JSON detected, attempting to close');
+    text = text + '"}';
+    end = text.lastIndexOf('}');
   }
   let json = text.slice(start, end + 1);
 
