@@ -549,56 +549,7 @@ body {
   </div>
 
   <div class="content padded-bottom">
-    <div class="totals-card">
-      <div class="ttl">Съедено сегодня</div>
-      <div class="cal-big"><span id="main-cal">0</span> <span class="cal-unit">ккал</span></div>
-      <div class="macros-row">
-        <div class="macro-item"><div class="macro-val"><span id="main-p">0</span>г</div><div class="macro-lbl">Белки</div></div>
-        <div class="macro-item"><div class="macro-val"><span id="main-f">0</span>г</div><div class="macro-lbl">Жиры</div></div>
-        <div class="macro-item"><div class="macro-val"><span id="main-c">0</span>г</div><div class="macro-lbl">Углеводы</div></div>
-      </div>
-    </div>
-
-    <div style="text-align:center;padding:16px 0 24px">
-      <p style="color:var(--text-muted);margin-bottom:14px;font-size:15px;font-weight:600">Хочешь что-то записать?</p>
-      <button class="camera-btn" onclick="triggerCamera()">📸</button>
-      <p style="color:var(--text-muted);margin-top:10px;font-size:13px">Сфотографируй еду или выбери из галереи</p>
-
-      <div class="or-divider">
-        <div class="line"></div>
-        <span>ИЛИ</span>
-        <div class="line"></div>
-      </div>
-
-      <div style="display:flex;justify-content:center;gap:20px">
-        <div style="text-align:center">
-          <button class="voice-food-btn" id="voice-food-btn" onclick="startVoiceFood()" style="width:90px;height:90px;font-size:34px">🎤</button>
-          <p style="color:var(--text-muted);margin-top:8px;font-size:12px">Голосом</p>
-        </div>
-        <div style="text-align:center">
-          <button class="voice-food-btn" onclick="startTextFood()" style="width:90px;height:90px;font-size:34px;background:linear-gradient(135deg,#667EEA,#764BA2);box-shadow:0 8px 30px rgba(102,126,234,0.4)">✏️</button>
-          <p style="color:var(--text-muted);margin-top:8px;font-size:12px">Текстом</p>
-        </div>
-      </div>
-      <p style="color:var(--text-muted);margin-top:10px;font-size:13px">Опиши что ты съел</p>
-    </div>
-
-    <!-- DAILY WEIGHT -->
-    <div class="card" id="main-weight-card">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <h3 style="font-size:15px;font-weight:800">⚖️ Вес сегодня</h3>
-        <span style="font-size:12px;color:var(--text-muted)" id="weight-trend"></span>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
-        <input type="number" id="weight-today-input" placeholder="кг" step="0.1" min="20" max="300"
-               style="flex:1;padding:12px;border:2px solid var(--border);border-radius:14px;font-size:18px;font-weight:700;text-align:center;font-family:inherit;outline:none"
-               onfocus="this.style.borderColor='var(--secondary)'" onblur="this.style.borderColor='var(--border)'">
-        <button class="btn btn-secondary" style="width:auto;padding:12px 20px;border-radius:14px;font-size:14px" onclick="saveWeight()">💾</button>
-      </div>
-      <div id="weight-mini-chart" style="margin-top:10px;font-size:12px;color:var(--text-muted)"></div>
-    </div>
-
-    <!-- BALANCE CARD: eaten / burned / remaining -->
+    <!-- BALANCE CARD (first!) -->
     <div class="card" id="main-balance-card" style="display:none">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <h3 style="font-size:15px;font-weight:800">⚖️ Баланс дня</h3>
@@ -626,17 +577,61 @@ body {
       </div>
     </div>
 
+    <!-- TOTALS (eaten today - compact) -->
+    <div class="totals-card">
+      <div class="ttl">Съедено сегодня</div>
+      <div class="cal-big"><span id="main-cal">0</span> <span class="cal-unit">ккал</span></div>
+      <div class="macros-row">
+        <div class="macro-item"><div class="macro-val"><span id="main-p">0</span>г</div><div class="macro-lbl">Белки</div></div>
+        <div class="macro-item"><div class="macro-val"><span id="main-f">0</span>г</div><div class="macro-lbl">Жиры</div></div>
+        <div class="macro-item"><div class="macro-val"><span id="main-c">0</span>г</div><div class="macro-lbl">Углеводы</div></div>
+      </div>
+    </div>
+
+    <!-- FOOD + ACTIVITY BUTTONS (compact, side by side) -->
+    <div class="card" style="padding:14px">
+      <div style="display:flex;gap:10px;align-items:stretch">
+        <!-- FOOD: photo big + voice/text small on the side -->
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:13px;font-weight:700;color:var(--text-muted);text-align:center">🍽️ Еда</div>
+          <button class="camera-btn" onclick="triggerCamera()" style="width:100%;height:70px;font-size:30px;border-radius:16px">📸</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost" onclick="startVoiceFood()" style="flex:1;padding:8px 4px;font-size:13px;border-radius:12px">🎤</button>
+            <button class="btn btn-ghost" onclick="startTextFood()" style="flex:1;padding:8px 4px;font-size:13px;border-radius:12px">✏️</button>
+          </div>
+        </div>
+
+        <!-- Divider -->
+        <div style="width:1px;background:var(--border);margin:4px 0"></div>
+
+        <!-- ACTIVITY: equal block -->
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:13px;font-weight:700;color:var(--text-muted);text-align:center">🏃 Активность</div>
+          <button class="btn btn-secondary" onclick="nav('activity')" style="flex:1;display:flex;align-items:center;justify-content:center;font-size:30px;border-radius:16px;min-height:70px;padding:0">🏃</button>
+          <div style="font-size:12px;color:var(--text-muted);text-align:center">Записать тренировку</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DAILY WEIGHT -->
+    <div class="card" id="main-weight-card">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <h3 style="font-size:15px;font-weight:800">⚖️ Вес сегодня</h3>
+        <span style="font-size:12px;color:var(--text-muted)" id="weight-trend"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+        <input type="number" id="weight-today-input" placeholder="кг" step="0.1" min="20" max="300"
+               style="flex:1;padding:12px;border:2px solid var(--border);border-radius:14px;font-size:18px;font-weight:700;text-align:center;font-family:inherit;outline:none"
+               onfocus="this.style.borderColor='var(--secondary)'" onblur="this.style.borderColor='var(--border)'">
+        <button class="btn btn-secondary" style="width:auto;padding:12px 20px;border-radius:14px;font-size:14px" onclick="saveWeight()">💾</button>
+      </div>
+      <div id="weight-mini-chart" style="margin-top:10px;font-size:12px;color:var(--text-muted)"></div>
+    </div>
+
     <!-- DAILY RECOMMENDATIONS -->
     <div class="card" id="main-recommendations" style="display:none">
       <h3 style="font-size:15px;font-weight:800;margin-bottom:10px">💡 Рекомендации</h3>
       <div id="reco-list" style="font-size:14px;line-height:1.6"></div>
-    </div>
-
-    <!-- ACTIVITY BUTTON -->
-    <div style="text-align:center;margin-bottom:14px">
-      <button class="btn btn-secondary" onclick="nav('activity')" style="display:inline-flex;align-items:center;gap:8px;width:auto;padding:12px 24px;border-radius:16px">
-        🏃 Записать активность
-      </button>
     </div>
 
     <!-- TODAY'S ACTIVITIES PREVIEW -->
@@ -828,6 +823,7 @@ body {
         <button class="activity-chip" data-type="dancing" data-cal="5">💃 Танцы</button>
         <button class="activity-chip" data-type="gym" data-cal="5">🏋️ Тренировка</button>
         <button class="activity-chip" data-type="cleaning" data-cal="3.5">🧹 Уборка</button>
+        <button class="activity-chip" data-type="study" data-cal="1.5">📖 Уроки/задания</button>
         <button class="activity-chip" data-type="other" data-cal="4">➕ Другое</button>
       </div>
     </div>
@@ -849,6 +845,16 @@ body {
       <div style="font-size:18px;font-weight:800;margin:8px 0" id="activity-preview-name">Бег</div>
       <div style="font-size:28px;font-weight:800;color:var(--secondary)" id="activity-preview-cal">0 ккал</div>
       <div style="font-size:13px;color:var(--text-muted)">будет сожжено</div>
+    </div>
+
+    <div class="card">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:10px">📷 Скриншот из фитнес-приложения</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Необязательно. Прикрепи скриншот для истории</p>
+      <input type="file" id="activity-photo-input" accept="image/*" style="display:none" onchange="onActivityPhotoSelected(event)">
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn btn-ghost" style="flex:1;padding:10px" onclick="$('activity-photo-input').click()">📎 Прикрепить фото</button>
+        <img id="activity-photo-preview" style="display:none;width:50px;height:50px;border-radius:10px;object-fit:cover">
+      </div>
     </div>
 
     <button class="btn btn-secondary" id="activity-save-btn" style="display:none" onclick="saveActivity()">
@@ -959,6 +965,9 @@ body {
       </div>
     </div>
 
+    <button class="btn btn-secondary" style="margin-bottom:10px" onclick="reanalyzeEdited()">
+      🔄 Пересчитать по названию
+    </button>
     <button class="btn btn-primary" style="font-size:17px;padding:18px" onclick="saveEntry()">
       💾 Сохранить в дневник
     </button>
@@ -981,7 +990,13 @@ body {
     </div>
   </div>
 
-  <div class="content padded-bottom" id="diary-content"></div>
+  <div class="content padded-bottom">
+    <div id="diary-content"></div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-ghost" style="flex:1;font-size:13px;padding:12px 8px" onclick="addFoodForDiaryDate()">🍽️ + Еда</button>
+      <button class="btn btn-ghost" style="flex:1;font-size:13px;padding:12px 8px" onclick="addActivityForDiaryDate()">🏃 + Активность</button>
+    </div>
+  </div>
 
   <nav class="nav-bar">
     <button class="nav-item" onclick="nav('main')">🏠<span>Главная</span></button>
@@ -1102,6 +1117,24 @@ body {
       </div>
     </div>
 
+    <div class="card" style="border-left:4px solid #9B59B6">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:6px;color:#9B59B6">🔐 Аккаунт и бэкап</h3>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px">
+        Привяжи email для восстановления данных на новом устройстве
+      </p>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="settings-email" placeholder="user@example.com">
+      </div>
+      <button class="btn btn-primary" style="margin-bottom:8px" onclick="saveEmail()">Привязать email</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" style="flex:1;font-size:13px" onclick="exportBackup()">📤 Экспорт данных</button>
+        <button class="btn btn-ghost" style="flex:1;font-size:13px" onclick="$('backup-file-input').click()">📥 Импорт</button>
+      </div>
+      <input type="file" id="backup-file-input" accept=".json" style="display:none" onchange="importBackup(event)">
+      <div id="backup-status" style="margin-top:8px;font-size:12px;color:var(--text-muted)"></div>
+    </div>
+
     <div class="card" style="border-left:4px solid var(--unhealthy)">
       <h3 style="font-size:15px;font-weight:800;margin-bottom:6px;color:var(--unhealthy)">⚠️ Удаление данных</h3>
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
@@ -1205,6 +1238,9 @@ function nav(id) {
     $('report-area').classList.add('hidden');
     $('key-test-result').style.display = 'none';
     updateNormsInfo();
+    const email = ls('user_email') || '';
+    $('settings-email').value = email;
+    $('backup-status').textContent = email ? 'Email: ' + email : '';
   }
 }
 
@@ -1868,6 +1904,26 @@ async function reanalyzeWithHint(hint) {
   }
 }
 
+async function reanalyzeEdited() {
+  const name = $('edit-name').value.trim();
+  if (!name) { toast('Введи название блюда'); return; }
+  showScreen('loading');
+  try {
+    const prompt = `Пользователь сообщил что это блюдо: "${name}".
+Рассчитай КБЖУ и оцени полезность как диетолог.
+Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":""}`;
+    const text = await geminiRequest(prompt, S.capturedImg);
+    const result = parseAIJson(text);
+    S.analysisResult = result;
+    fillResultScreen(result, S.capturedImg);
+    showScreen('result');
+    toast('✅ БЖУ пересчитано!');
+  } catch(err) {
+    showScreen('result');
+    toast('Ошибка: ' + (err.message || '').slice(0, 60));
+  }
+}
+
 function autoDetectMealType() {
   const h = new Date().getHours();
   return h < 10 ? 'breakfast' : h < 12 ? 'second_breakfast' :
@@ -1884,9 +1940,11 @@ async function autoSaveFromConfirm() {
   }
 
   const now = new Date();
+  const entryDate = _foodOverrideDate || fmtDate(now);
+  _foodOverrideDate = null;
   const entry = {
     id:          Date.now(),
-    date:        fmtDate(now),
+    date:        entryDate,
     time:        fmtTime(now),
     mealType:    autoDetectMealType(),
     dishName:    r.dish_name || 'Блюдо',
@@ -2027,6 +2085,22 @@ function updateNormsInfo() {
 // ──────────────────────────────────────────
 let _selActivityType = null;
 let _selDurationMin  = null;
+let _activityPhoto   = null;
+let _activityOverrideDate = null;
+
+function onActivityPhotoSelected(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      _activityPhoto = await compressImg(e.target.result, 400, 0.7);
+      $('activity-photo-preview').src = _activityPhoto;
+      $('activity-photo-preview').style.display = 'block';
+    } catch { toast('Не удалось загрузить фото'); }
+  };
+  reader.readAsDataURL(file);
+}
 
 // Chip selection handlers
 document.querySelectorAll('#activity-types .activity-chip').forEach(btn => {
@@ -2080,14 +2154,16 @@ function saveActivity() {
   const hours = _selDurationMin / 60;
   const burned = Math.round(_selActivityType.cal * w * hours);
 
+  const entryDate = _activityOverrideDate || fmtDate(new Date());
   const entry = {
     id:       Date.now(),
-    date:     fmtDate(new Date()),
+    date:     entryDate,
     time:     fmtTime(new Date()),
     type:     _selActivityType.type,
     label:    _selActivityType.label,
     duration: _selDurationMin,
     calBurned: burned,
+    photo:    _activityPhoto || null,
   };
 
   const all = getActivities();
@@ -2097,9 +2173,13 @@ function saveActivity() {
   // Reset selection
   _selActivityType = null;
   _selDurationMin  = null;
+  _activityPhoto   = null;
+  _activityOverrideDate = null;
   document.querySelectorAll('.activity-chip.selected, .duration-chip.selected').forEach(b => b.classList.remove('selected'));
   $('activity-preview').style.display = 'none';
   $('activity-save-btn').style.display = 'none';
+  $('activity-photo-preview').style.display = 'none';
+  $('activity-photo-input').value = '';
 
   toast('🏃 Активность записана! −' + burned + ' ккал');
   nav('main');
@@ -2399,9 +2479,11 @@ async function saveEntry() {
   }
 
   const now   = new Date();
+  const entryDate = _foodOverrideDate || fmtDate(now);
+  _foodOverrideDate = null;
   const entry = {
     id:          Date.now(),
-    date:        fmtDate(now),
+    date:        entryDate,
     time:        fmtTime(now),
     mealType:    $('edit-meal-type').value,
     dishName:    name,
@@ -2446,11 +2528,55 @@ const MEAL_LABELS = {
 };
 const MEAL_ORDER = ['breakfast','second_breakfast','lunch','snack','dinner','extra'];
 
+let _foodOverrideDate = null;
+
 function changeDay(delta) {
   const d = new Date(S.diaryDate);
   d.setDate(d.getDate() + delta);
   S.diaryDate = d;
   renderDiary();
+}
+
+function addFoodForDiaryDate() {
+  _foodOverrideDate = fmtDate(S.diaryDate);
+  // Show choice: photo / voice / text
+  const d = S.diaryDate;
+  const label = fmtDate(d) === fmtDate(new Date()) ? 'сегодня' : formatFullDate(d);
+  const choice = prompt(`Добавить еду за ${label}.\nВведи название блюда (или нажми Отмена и используй фото):`, '');
+  if (choice === null) {
+    // User cancelled — let them use photo
+    triggerCamera();
+    return;
+  }
+  if (choice.trim()) {
+    // Text-based food analysis for a specific date
+    startTextFoodWithDate(choice.trim(), _foodOverrideDate);
+  }
+}
+
+async function startTextFoodWithDate(text, dateOverride) {
+  showScreen('loading');
+  try {
+    const prompt = `Пользователь описал свою еду: "${text}".
+Проанализируй как диетолог-помощник. Рассчитай КБЖУ.
+Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения","question":""}`;
+    const raw = await geminiRequest(prompt, null);
+    const result = parseAIJson(raw);
+    S.analysisResult = result;
+    S.capturedImg = null;
+    _foodOverrideDate = dateOverride;
+    fillConfirmScreen(result, null);
+    fillResultScreen(result, null);
+    showScreen('confirm');
+  } catch(err) {
+    showScreen('diary');
+    toast('Ошибка: ' + (err.message || '').slice(0, 60));
+  }
+}
+
+function addActivityForDiaryDate() {
+  _activityOverrideDate = fmtDate(S.diaryDate);
+  nav('activity');
 }
 
 function renderDiary() {
@@ -2962,6 +3088,112 @@ async function testApiKey() {
     el.style.background = '#FDEDEC'; el.style.color = '#943126';
     el.textContent = `❌ ${e.message}`;
   }
+}
+
+// ──────────────────────────────────────────
+// ACCOUNT & BACKUP
+// ──────────────────────────────────────────
+function saveEmail() {
+  const email = $('settings-email').value.trim();
+  if (!email || !email.includes('@')) { toast('Введи корректный email'); return; }
+  ls('user_email', email);
+  toast('✅ Email привязан: ' + email);
+  $('backup-status').textContent = 'Email: ' + email;
+}
+
+function exportBackup() {
+  const data = {
+    version: 2,
+    date: new Date().toISOString(),
+    email: ls('user_email') || '',
+    profile: {
+      childName: S.childName,
+      gender: S.gender,
+      birthDate: S.birthDate,
+      heightCm: S.heightCm,
+      weightKg: S.weightKg,
+      activityLevel: S.activityLevel,
+    },
+    apiKey: S.apiKey,
+    geminiPlan: S.geminiPlan,
+    diaryEntries: getEntries(),
+    activities: getActivities(),
+    weightHistory: getWeightHistory(),
+  };
+
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `familynutri-backup-${fmtDate(new Date())}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('📤 Бэкап скачан!');
+}
+
+function importBackup(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.version) throw new Error('Неверный формат файла');
+
+      // Restore profile
+      if (data.profile) {
+        const p = data.profile;
+        if (p.childName)     { S.childName = p.childName;     ls('child_name', p.childName); }
+        if (p.gender)        { S.gender = p.gender;           ls('user_gender', p.gender); }
+        if (p.birthDate)     { S.birthDate = p.birthDate;     ls('user_birth', p.birthDate); }
+        if (p.heightCm)      { S.heightCm = p.heightCm;       ls('user_height', p.heightCm); }
+        if (p.weightKg)      { S.weightKg = p.weightKg;       ls('user_weight', p.weightKg); }
+        if (p.activityLevel) { S.activityLevel = p.activityLevel; ls('user_activity', p.activityLevel); }
+      }
+      if (data.apiKey)     { S.apiKey = data.apiKey;         ls('gemini_key', data.apiKey); }
+      if (data.geminiPlan) { S.geminiPlan = data.geminiPlan;  ls('gemini_plan', data.geminiPlan); }
+      if (data.email)      { ls('user_email', data.email); }
+
+      // Merge diary entries (avoid duplicates by id)
+      if (data.diaryEntries && data.diaryEntries.length) {
+        const existing = getEntries();
+        const existIds = new Set(existing.map(e => e.id));
+        const newEntries = data.diaryEntries.filter(e => !existIds.has(e.id));
+        const merged = [...existing, ...newEntries].sort((a, b) => a.id - b.id);
+        ls('diary_entries', JSON.stringify(merged));
+      }
+
+      // Merge activities
+      if (data.activities && data.activities.length) {
+        const existing = getActivities();
+        const existIds = new Set(existing.map(a => a.id));
+        const newActs = data.activities.filter(a => !existIds.has(a.id));
+        const merged = [...existing, ...newActs].sort((a, b) => a.id - b.id);
+        localStorage.setItem('activity_entries', JSON.stringify(merged));
+      }
+
+      // Merge weight history
+      if (data.weightHistory && data.weightHistory.length) {
+        const existing = getWeightHistory();
+        const existDates = new Set(existing.map(w => w.date));
+        const newW = data.weightHistory.filter(w => !existDates.has(w.date));
+        const merged = [...existing, ...newW].sort((a, b) => a.date.localeCompare(b.date));
+        localStorage.setItem('weight_history', JSON.stringify(merged));
+      }
+
+      // Recalc norms
+      S.dailyNorms = calcDailyNorms();
+
+      toast('📥 Данные восстановлены!');
+      $('backup-status').textContent = `Импортировано: ${data.diaryEntries?.length || 0} записей, ${data.activities?.length || 0} активностей`;
+      nav('settings');
+    } catch(err) {
+      toast('❌ Ошибка импорта: ' + (err.message || '').slice(0, 50));
+    }
+  };
+  reader.readAsText(file);
+  ev.target.value = '';
 }
 
 // ──────────────────────────────────────────
