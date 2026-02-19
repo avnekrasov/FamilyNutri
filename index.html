@@ -453,6 +453,40 @@ body {
           <button class="voice-btn" onclick="voiceToField('setup-name')" title="Голосовой ввод">🎤</button>
         </div>
       </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Пол</label>
+          <select id="setup-gender">
+            <option value="male">Мужской</option>
+            <option value="female">Женский</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Дата рождения</label>
+          <input type="date" id="setup-birth">
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Рост (см)</label>
+          <input type="number" id="setup-height" placeholder="170" inputmode="numeric" min="50" max="250">
+        </div>
+        <div class="form-group">
+          <label>Вес (кг)</label>
+          <input type="number" id="setup-weight" placeholder="65" inputmode="decimal" min="10" max="300" step="0.1">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Уровень активности</label>
+        <select id="setup-activity">
+          <option value="sedentary">Сидячий (офис, мало движения)</option>
+          <option value="light" selected>Лёгкий (прогулки 1-3 р/нед)</option>
+          <option value="moderate">Средний (спорт 3-5 р/нед)</option>
+          <option value="active">Высокий (спорт 6-7 р/нед)</option>
+          <option value="very_active">Очень высокий (тяжёлые тренировки)</option>
+        </select>
+      </div>
+
       <div class="form-group">
         <label>API ключ Google Gemini</label>
         <input type="password" id="setup-key" placeholder="Вставь ключ сюда">
@@ -851,7 +885,46 @@ body {
           <button class="voice-btn" onclick="voiceToField('settings-name')" title="Голосовой ввод">🎤</button>
         </div>
       </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Пол</label>
+          <select id="settings-gender">
+            <option value="male">Мужской</option>
+            <option value="female">Женский</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Дата рождения</label>
+          <input type="date" id="settings-birth">
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Рост (см)</label>
+          <input type="number" id="settings-height" placeholder="170" inputmode="numeric" min="50" max="250">
+        </div>
+        <div class="form-group">
+          <label>Вес (кг)</label>
+          <input type="number" id="settings-weight" placeholder="65" inputmode="decimal" min="10" max="300" step="0.1">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Уровень активности</label>
+        <select id="settings-activity">
+          <option value="sedentary">Сидячий (офис, мало движения)</option>
+          <option value="light">Лёгкий (прогулки 1-3 р/нед)</option>
+          <option value="moderate">Средний (спорт 3-5 р/нед)</option>
+          <option value="active">Высокий (спорт 6-7 р/нед)</option>
+          <option value="very_active">Очень высокий (тяжёлые тренировки)</option>
+        </select>
+      </div>
+      <div id="settings-norms-info" style="background:var(--bg);border-radius:14px;padding:12px;margin-bottom:14px;font-size:13px;color:var(--text)"></div>
 
+      <button class="btn btn-primary" onclick="updateSettings()">Сохранить</button>
+    </div>
+
+    <div class="card">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🔑 API настройки</h3>
       <div class="form-group">
         <label>API ключ Gemini</label>
         <input type="password" id="settings-key" placeholder="AIza...">
@@ -866,10 +939,6 @@ body {
           <option value="free">Бесплатный (пауза 5 сек)</option>
           <option value="paid">Платный (без лимитов)</option>
         </select>
-        <p style="font-size:11px;color:var(--text-muted);margin-top:6px">
-          Бесплатный: пауза между запросами, ожидание при лимите<br>
-          Платный: мгновенные запросы, быстрый повтор при ошибке
-        </p>
       </div>
 
       <button class="btn btn-primary" onclick="updateSettings()">Сохранить</button>
@@ -923,6 +992,12 @@ const S = {
   apiKey: '',
   geminiPlan: 'free',    // 'free' | 'paid'
   childName: '',
+  gender: '',            // 'male' | 'female'
+  birthDate: '',         // 'YYYY-MM-DD'
+  heightCm: 0,
+  weightKg: 0,
+  activityLevel: 'light', // sedentary|light|moderate|active|very_active
+  dailyNorms: { cal: 2000, p: 60, f: 65, c: 260 }, // calculated
   diaryDate: new Date(),
   capturedImg: null,
   analysisResult: null,
@@ -935,9 +1010,15 @@ const S = {
 // INIT
 // ──────────────────────────────────────────
 function init() {
-  S.apiKey     = ls('gemini_key') || '';
-  S.geminiPlan = ls('gemini_plan') || 'free';
-  S.childName  = ls('child_name') || '';
+  S.apiKey        = ls('gemini_key') || '';
+  S.geminiPlan    = ls('gemini_plan') || 'free';
+  S.childName     = ls('child_name') || '';
+  S.gender        = ls('user_gender') || '';
+  S.birthDate     = ls('user_birth') || '';
+  S.heightCm      = parseFloat(ls('user_height')) || 0;
+  S.weightKg      = parseFloat(ls('user_weight')) || 0;
+  S.activityLevel = ls('user_activity') || 'light';
+  S.dailyNorms    = calcDailyNorms();
   if (!S.apiKey || !S.childName) {
     showScreen('setup');
   } else {
@@ -961,11 +1042,17 @@ function nav(id) {
   if (id === 'diary')  { S.diaryDate = new Date(); renderDiary(); }
   if (id === 'stats')    renderStats();
   if (id === 'settings') {
-    $('settings-name').value        = S.childName;
-    $('settings-key').value         = S.apiKey;
-    $('settings-gemini-plan').value = S.geminiPlan;
+    $('settings-name').value         = S.childName;
+    $('settings-gender').value       = S.gender || 'male';
+    $('settings-birth').value        = S.birthDate || '';
+    $('settings-height').value       = S.heightCm || '';
+    $('settings-weight').value       = S.weightKg || '';
+    $('settings-activity').value     = S.activityLevel || 'light';
+    $('settings-key').value          = S.apiKey;
+    $('settings-gemini-plan').value  = S.geminiPlan;
     $('report-area').classList.add('hidden');
     $('key-test-result').style.display = 'none';
+    updateNormsInfo();
   }
 }
 
@@ -973,30 +1060,58 @@ function nav(id) {
 // SETUP / SETTINGS
 // ──────────────────────────────────────────
 function saveSetup() {
-  const name = $('setup-name').value.trim();
-  const key  = $('setup-key').value.trim();
-  const plan = $('setup-gemini-plan')?.value || 'free';
-  if (!name) { toast('Введи своё имя 👋'); return; }
-  if (!key)  { toast('Нужен API ключ для анализа фото'); return; }
+  const name   = $('setup-name').value.trim();
+  const key    = $('setup-key').value.trim();
+  const plan   = $('setup-gemini-plan')?.value || 'free';
+  const gender = $('setup-gender').value;
+  const birth  = $('setup-birth').value;
+  const height = parseFloat($('setup-height').value) || 0;
+  const weight = parseFloat($('setup-weight').value) || 0;
+  const act    = $('setup-activity').value;
+  if (!name)  { toast('Введи своё имя 👋'); return; }
+  if (!key)   { toast('Нужен API ключ для анализа фото'); return; }
   ls('child_name', name);
   ls('gemini_key', key);
   ls('gemini_plan', plan);
-  S.childName  = name;
-  S.apiKey     = key;
-  S.geminiPlan = plan;
+  ls('user_gender', gender);
+  ls('user_birth', birth);
+  ls('user_height', height);
+  ls('user_weight', weight);
+  ls('user_activity', act);
+  S.childName     = name;
+  S.apiKey        = key;
+  S.geminiPlan    = plan;
+  S.gender        = gender;
+  S.birthDate     = birth;
+  S.heightCm      = height;
+  S.weightKg      = weight;
+  S.activityLevel = act;
+  S.dailyNorms    = calcDailyNorms();
   showScreen('main');
   refreshMain();
   setTimeout(() => speak(`Привет, ${name}! Добро пожаловать в дневник питания!`), 400);
 }
 
 function updateSettings() {
-  const name = $('settings-name').value.trim();
-  const key  = $('settings-key').value.trim();
-  const plan = $('settings-gemini-plan').value;
-  if (name) { ls('child_name', name);   S.childName  = name; }
-  if (key)  { ls('gemini_key', key);    S.apiKey     = key;  }
-  if (plan) { ls('gemini_plan', plan);  S.geminiPlan = plan; }
-  _cachedModel = null; // reset cached model on key change
+  const name   = $('settings-name').value.trim();
+  const key    = $('settings-key').value.trim();
+  const plan   = $('settings-gemini-plan').value;
+  const gender = $('settings-gender').value;
+  const birth  = $('settings-birth').value;
+  const height = parseFloat($('settings-height').value) || 0;
+  const weight = parseFloat($('settings-weight').value) || 0;
+  const act    = $('settings-activity').value;
+  if (name) { ls('child_name', name);     S.childName     = name; }
+  if (key)  { ls('gemini_key', key);      S.apiKey        = key;  }
+  if (plan) { ls('gemini_plan', plan);    S.geminiPlan    = plan; }
+  ls('user_gender', gender);   S.gender        = gender;
+  ls('user_birth', birth);     S.birthDate     = birth;
+  if (height) { ls('user_height', height); S.heightCm    = height; }
+  if (weight) { ls('user_weight', weight); S.weightKg    = weight; }
+  ls('user_activity', act);    S.activityLevel = act;
+  _cachedModel = null;
+  S.dailyNorms = calcDailyNorms();
+  updateNormsInfo();
   toast('Настройки сохранены ✅');
 }
 
@@ -1651,9 +1766,61 @@ async function analyzeVoiceFood(description) {
 }
 
 // ──────────────────────────────────────────
+// BMR & DAILY NORMS CALCULATION
+// ──────────────────────────────────────────
+const ACTIVITY_COEFFS = {
+  sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9
+};
+
+function calcAge(birthDate) {
+  if (!birthDate) return 30; // default
+  const b = new Date(birthDate);
+  const now = new Date();
+  let age = now.getFullYear() - b.getFullYear();
+  if (now.getMonth() < b.getMonth() || (now.getMonth() === b.getMonth() && now.getDate() < b.getDate())) age--;
+  return Math.max(age, 1);
+}
+
+function calcDailyNorms() {
+  const w = S.weightKg || 65;
+  const h = S.heightCm || 170;
+  const age = calcAge(S.birthDate);
+  const g = S.gender || 'male';
+  const coeff = ACTIVITY_COEFFS[S.activityLevel] || 1.375;
+
+  let bmr;
+  if (age < 18) {
+    // Harris-Benedict для детей
+    bmr = g === 'male'
+      ? 88.362 + 13.397 * w + 4.799 * h - 5.677 * age
+      : 447.593 + 9.247 * w + 3.098 * h - 4.330 * age;
+  } else {
+    // Mifflin-St Jeor для взрослых
+    bmr = g === 'male'
+      ? 10 * w + 6.25 * h - 5 * age + 5
+      : 10 * w + 6.25 * h - 5 * age - 161;
+  }
+
+  const cal = Math.round(bmr * coeff);
+  return {
+    cal,
+    p: Math.round(cal * 0.25 / 4),   // 25% калорий из белков, 4 ккал/г
+    f: Math.round(cal * 0.30 / 9),   // 30% из жиров, 9 ккал/г
+    c: Math.round(cal * 0.45 / 4),   // 45% из углеводов, 4 ккал/г
+    bmr: Math.round(bmr),
+  };
+}
+
+function updateNormsInfo() {
+  const el = $('settings-norms-info');
+  if (!el) return;
+  const n = S.dailyNorms;
+  el.innerHTML = `⚡ BMR: <b>${n.bmr}</b> ккал &nbsp;|&nbsp; 🎯 Норма: <b>${n.cal}</b> ккал<br>Б: ${n.p}г · Ж: ${n.f}г · У: ${n.c}г`;
+}
+
+// ──────────────────────────────────────────
 // FEEDBACK SCREEN
 // ──────────────────────────────────────────
-const DAILY_NORMS = { cal: 2000, p: 60, f: 65, c: 260 };
 
 const PRAISES = {
   green: [
@@ -1691,10 +1858,10 @@ function showFeedback(entry) {
     setTimeout(() => { $(barId).style.width = pct + '%'; }, 100);
     $(textId).textContent = `${current}/${norm}${unit}`;
   };
-  setBar('fb-cal-bar', 'fb-cal-text', t.cal, DAILY_NORMS.cal, '');
-  setBar('fb-p-bar', 'fb-p-text', t.p, DAILY_NORMS.p, 'г');
-  setBar('fb-f-bar', 'fb-f-text', t.f, DAILY_NORMS.f, 'г');
-  setBar('fb-c-bar', 'fb-c-text', t.c, DAILY_NORMS.c, 'г');
+  setBar('fb-cal-bar', 'fb-cal-text', t.cal, S.dailyNorms.cal, '');
+  setBar('fb-p-bar', 'fb-p-text', t.p, S.dailyNorms.p, 'г');
+  setBar('fb-f-bar', 'fb-f-text', t.f, S.dailyNorms.f, 'г');
+  setBar('fb-c-bar', 'fb-c-text', t.c, S.dailyNorms.c, 'г');
 
   // Voice praise
   setTimeout(() => speak(praise.text(entry.dishName)), 400);
@@ -1707,14 +1874,14 @@ function showFeedback(entry) {
 async function generateDayPlan(dayTotals, mealCount) {
   try {
     const remaining = {
-      cal: Math.max(DAILY_NORMS.cal - dayTotals.cal, 0),
-      p: Math.max(DAILY_NORMS.p - dayTotals.p, 0),
+      cal: Math.max(S.dailyNorms.cal - dayTotals.cal, 0),
+      p: Math.max(S.dailyNorms.p - dayTotals.p, 0),
     };
     const h = new Date().getHours();
     const timeOfDay = h < 12 ? 'утро' : h < 17 ? 'день' : 'вечер';
-    const overNorm = dayTotals.cal > DAILY_NORMS.cal;
+    const overNorm = dayTotals.cal > S.dailyNorms.cal;
 
-    const prompt = `Ты добрый диетолог для ребёнка. Сейчас ${timeOfDay}. Съедено ${mealCount} приёмов пищи, всего ${dayTotals.cal} ккал из ${DAILY_NORMS.cal}.
+    const prompt = `Ты добрый диетолог для ребёнка. Сейчас ${timeOfDay}. Съедено ${mealCount} приёмов пищи, всего ${dayTotals.cal} ккал из ${S.dailyNorms.cal}.
 ${overNorm ? 'Норма превышена. НЕ ругай, мягко предложи прогулку.' : `Осталось ${remaining.cal} ккал, белков осталось ${remaining.p}г.`}
 Дай КРАТКИЙ дружелюбный совет (2-3 предложения) на оставшийся день. Говори на "ты". НИКОГДА не ругай. Только текст, без JSON, без markdown.`;
 
@@ -1722,7 +1889,7 @@ ${overNorm ? 'Норма превышена. НЕ ругай, мягко пре�
     $('fb-plan-text').textContent = text;
   } catch {
     // Fallback — simple local tips
-    const remaining = DAILY_NORMS.cal - dayTotals.cal;
+    const remaining = S.dailyNorms.cal - dayTotals.cal;
     if (remaining > 400) {
       $('fb-plan-text').textContent = `У тебя ещё ${remaining} ккал на сегодня. Не забудь попить воды и съесть что-то полезное!`;
     } else if (remaining > 0) {
