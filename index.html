@@ -1120,7 +1120,7 @@ body {
           <label>Email</label>
           <input type="email" id="auth-email" placeholder="user@example.com">
         </div>
-        <button class="btn btn-primary" style="margin-bottom:8px" onclick="cloudSignIn()">📧 Войти по email-ссылке</button>
+        <button class="btn btn-primary" style="margin-bottom:8px" onclick="cloudSignIn()">🔐 Войти / Создать аккаунт</button>
       </div>
 
       <!-- Auth state: logged in -->
@@ -3416,27 +3416,60 @@ async function cloudSignIn() {
   }
   if (!_fbAuth) { toast('Firebase не инициализирован. Настройте проект Firebase.'); return; }
 
+  // Show loading state
+  const btn = document.querySelector('#auth-logged-out .btn-primary');
+  const origText = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ Подключение...'; btn.disabled = true; }
+
   try {
-    // Send sign-in email link
-    const actionCodeSettings = {
-      url: window.location.href,
-      handleCodeInApp: true,
-    };
-    await _fbAuth.sendSignInLinkToEmail(email, actionCodeSettings);
-    ls('emailForSignIn', email);
-    toast('📧 Ссылка отправлена на ' + email + '! Проверь почту.');
-  } catch(err) {
-    // Fallback: try email/password
-    try {
-      await _fbAuth.signInWithEmailAndPassword(email, 'familynutri-' + email);
-    } catch {
+    // Try email/password sign in first (simplest)
+    await _fbAuth.signInWithEmailAndPassword(email, 'familynutri2024');
+    toast('✅ Вход выполнен!');
+  } catch(signInErr) {
+    if (signInErr.code === 'auth/user-not-found' || signInErr.code === 'auth/invalid-credential') {
+      // User doesn't exist — create account
       try {
-        await _fbAuth.createUserWithEmailAndPassword(email, 'familynutri-' + email);
+        await _fbAuth.createUserWithEmailAndPassword(email, 'familynutri2024');
         toast('✅ Аккаунт создан!');
-      } catch(e2) {
-        toast('❌ ' + (e2.message || 'Ошибка авторизации').slice(0, 60));
+      } catch(createErr) {
+        handleFirebaseAuthError(createErr);
       }
+    } else if (signInErr.code === 'auth/wrong-password') {
+      // Try with old password format
+      try {
+        await _fbAuth.signInWithEmailAndPassword(email, 'familynutri-' + email);
+      } catch {
+        handleFirebaseAuthError(signInErr);
+      }
+    } else {
+      handleFirebaseAuthError(signInErr);
     }
+  } finally {
+    if (btn) { btn.textContent = origText; btn.disabled = false; }
+  }
+}
+
+function handleFirebaseAuthError(err) {
+  const code = err.code || '';
+  const msg = err.message || '';
+  console.warn('Firebase auth error:', code, msg);
+
+  if (code === 'auth/api-key-not-valid-please-pass-a-valid-api-key' || msg.includes('API key')) {
+    toast('❌ Неверный API ключ Firebase. Проверь конфигурацию.');
+  } else if (code === 'auth/unauthorized-domain' || msg.includes('unauthorized')) {
+    toast('❌ Домен не добавлен в Firebase → Authentication → Settings → Authorized domains');
+  } else if (code === 'auth/configuration-not-found' || msg.includes('NO API') || msg.includes('CONFIGURATION_NOT_FOUND') || msg.includes('not found')) {
+    toast('❌ В Firebase Console нужно включить Email/Password в Authentication → Sign-in method', 5000);
+  } else if (code === 'auth/network-request-failed') {
+    toast('❌ Нет интернета или Firebase заблокирован');
+  } else if (code === 'auth/too-many-requests') {
+    toast('⏳ Слишком много попыток. Подожди минуту.');
+  } else if (code === 'auth/weak-password') {
+    toast('❌ Ошибка создания аккаунта');
+  } else if (code === 'auth/email-already-in-use') {
+    toast('❌ Email уже зарегистрирован с другим паролем');
+  } else {
+    toast('❌ ' + (msg || 'Ошибка авторизации').slice(0, 80));
   }
 }
 
