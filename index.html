@@ -3346,8 +3346,8 @@ const firebaseConfig = {
 
 let _fb = null, _fbAuth = null, _fbDb = null, _fbUser = null;
 function isFirebaseConfigured() {
-  return FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.includes('placeholder') &&
-         FIREBASE_CONFIG.appId && !FIREBASE_CONFIG.appId.includes('placeholder');
+  return firebaseConfig.apiKey && !firebaseConfig.apiKey.includes('placeholder') &&
+         firebaseConfig.appId && !firebaseConfig.appId.includes('placeholder');
 }
 
 function initFirebase() {
@@ -3357,7 +3357,7 @@ function initFirebase() {
       console.warn('Firebase: placeholder config detected, cloud features disabled');
       return false;
     }
-    _fb = firebase.initializeApp(FIREBASE_CONFIG);
+    _fb = firebase.initializeApp(firebaseConfig);
     _fbAuth = firebase.auth();
     _fbDb = firebase.firestore();
     // Listen for auth state changes
