@@ -1,5 +1,5 @@
 // FamilyNutri Service Worker — offline cache
-const CACHE = 'familynutri-v1';
+const CACHE = 'familynutri-v7';
 const ASSETS = ['./index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
@@ -21,18 +21,19 @@ self.addEventListener('fetch', e => {
 
   // Don't cache API requests
   if (url.hostname.includes('googleapis.com')) return;
+  if (url.hostname.includes('firebaseapp.com')) return;
+  if (url.hostname.includes('gstatic.com')) return;
 
+  // Network first for everything — always try to get fresh version
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      // Network first for navigation, cache first for assets
-      if (e.request.mode === 'navigate') {
-        return fetch(e.request).then(resp => {
-          const clone = resp.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
-          return resp;
-        }).catch(() => cached || new Response('Нет интернета', { status: 503 }));
-      }
-      return cached || fetch(e.request);
-    })
+    fetch(e.request).then(resp => {
+      const clone = resp.clone();
+      caches.open(CACHE).then(c => c.put(e.request, clone));
+      return resp;
+    }).catch(() =>
+      caches.match(e.request).then(cached =>
+        cached || new Response('Нет интернета', { status: 503 })
+      )
+    )
   );
 });
