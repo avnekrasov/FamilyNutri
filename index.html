@@ -642,7 +642,7 @@ body {
     <div class="loading-emoji">🤔</div>
     <div class="spinner"></div>
     <h2 style="font-size:22px;font-weight:800">Анализирую еду...</h2>
-    <p style="color:var(--text-muted);line-height:1.5">Искусственный интеллект<br>изучает твою тарелку</p>
+    <p id="loading-status" style="color:var(--text-muted);line-height:1.5">Отправляю фото на распознавание</p>
     <button class="btn btn-ghost" style="margin-top:30px;width:auto;padding:12px 32px" onclick="cancelAnalysis()">✕ Отменить</button>
   </div>
 </div>
@@ -1439,31 +1439,39 @@ function triggerCamera() {
 function onPhotoSelected(ev) {
   const file = ev.target.files[0];
   if (!file) return;
+  if (!S.apiKey) { toast('Сначала введи API ключ в Настройках'); nav('settings'); return; }
   const reader = new FileReader();
   reader.onload = async e => {
     showScreen('loading');
+    const ls_ = $('loading-status');
+    if (ls_) ls_.textContent = 'Сжимаю фото...';
+    const t0 = Date.now();
     try {
-      const compressed     = await compressImg(e.target.result, 900, 0.82);
+      const compressed     = await compressImg(e.target.result, 800, 0.75);
       S.capturedImg        = compressed;
       S.analysisResult     = null;
+      if (ls_) ls_.textContent = 'Отправляю на распознавание...';
       const result         = await analyzeFood(compressed);
       S.analysisResult     = result;
       fillConfirmScreen(result, compressed);
       fillResultScreen(result, compressed);
       showScreen('confirm');
+      console.log('Photo analysis took', Date.now() - t0, 'ms');
       setTimeout(() => speak(`Я вижу ${result.dish_name}. Это правильно?`), 700);
     } catch (err) {
-      console.error('Photo analysis error:', err);
+      console.error('Photo analysis error:', err, 'after', Date.now() - t0, 'ms');
       showScreen('main');
       const msg = err.message || '';
-      if (msg.includes('API_KEY') || msg.includes('401') || msg.includes('403')) {
-        toast('❌ Неверный API ключ. Проверь в Настройках.');
-      } else if (msg.includes('quota') || msg.includes('429')) {
-        toast('⏳ Превышен лимит запросов. Подожди минуту.');
+      if (msg.includes('API_KEY') || msg.includes('API key') || msg.includes('401') || msg.includes('403')) {
+        toast('❌ Неверный API ключ. Проверь в Настройках.', 4000);
+      } else if (msg.includes('Лимит') || msg.includes('429') || msg.includes('quota')) {
+        toast('⏳ ' + msg.slice(0, 100), 4000);
+      } else if (msg.includes('время ожидания') || msg.includes('timeout')) {
+        toast('⏳ Сервер долго отвечает. Попробуй ещё раз.', 4000);
       } else if (msg.includes('разобрать') || msg.includes('Не удалось')) {
-        toast('🔄 ' + msg.slice(0, 100));
+        toast('🔄 Не удалось распознать. Попробуй текстовый ввод.', 4000);
       } else {
-        toast('❌ ' + (msg.slice(0, 100) || 'нет интернета?'));
+        toast('❌ ' + (msg.slice(0, 100) || 'Проверь интернет'), 4000);
       }
     }
   };
@@ -1509,23 +1517,20 @@ async function makeThumbnail(dataUrl) {
 // ──────────────────────────────────────────
 let _cachedModel = ls('gemini_model') || null;
 const DEFAULT_MODEL = 'gemini-2.0-flash';
+let _modelDiscoveryDone = !!_cachedModel; // skip discovery if already cached
 
 async function findWorkingModel(key) {
   if (_cachedModel) return _cachedModel;
+  if (_modelDiscoveryDone) return DEFAULT_MODEL;
+  _modelDiscoveryDone = true; // only try once per session
 
-  // Try to query model list; if rate-limited or error — use default
   try {
     const r = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`
     );
-    if (r.status === 429) {
-      // Rate limited — use default model, don't cache yet
-      console.log('Model list rate-limited, using default:', DEFAULT_MODEL);
-      return DEFAULT_MODEL;
-    }
     if (!r.ok) {
-      const e = await r.json().catch(() => ({}));
-      throw new Error(e.error?.message || `HTTP ${r.status}`);
+      console.log('Model list fetch failed, using default:', DEFAULT_MODEL);
+      return DEFAULT_MODEL;
     }
     const data  = await r.json();
     const names = (data.models || [])
@@ -1543,7 +1548,6 @@ async function findWorkingModel(key) {
     console.log('Gemini model selected:', _cachedModel);
     return _cachedModel;
   } catch(e) {
-    // On any error — fallback to default so user can still try
     console.warn('Model discovery failed, using default:', e.message);
     return DEFAULT_MODEL;
   }
@@ -1566,80 +1570,96 @@ function cancelAnalysis() {
 
 async function geminiRequest(prompt, imageBase64) {
   _abortController = new AbortController();
-
-  // Ensure model is resolved (use cached or default, avoid extra API call)
   const model = _cachedModel || ls('gemini_model') || DEFAULT_MODEL;
-  // Lazy-load model list in background if not cached (don't block request)
-  if (!_cachedModel) {
-    findWorkingModel(S.apiKey).catch(() => {}); // fire-and-forget
+
+  // Background model discovery — only once, doesn't block
+  if (!_modelDiscoveryDone) {
+    findWorkingModel(S.apiKey).catch(() => {});
   }
 
-  // Rate limiting for free plan (pause between requests)
-  if (S.geminiPlan === 'free') {
-    const minPause = 4000;
-    if (S.lastGeminiCall > 0) {
-      const elapsed = Date.now() - S.lastGeminiCall;
-      if (elapsed < minPause) {
-        await new Promise(r => setTimeout(r, minPause - elapsed));
-      }
+  // Rate limiting for free plan
+  if (S.geminiPlan === 'free' && S.lastGeminiCall > 0) {
+    const elapsed = Date.now() - S.lastGeminiCall;
+    if (elapsed < 4000) {
+      await new Promise(r => setTimeout(r, 4000 - elapsed));
     }
   }
-  const parts = [{ text: prompt }];
 
+  const parts = [{ text: prompt }];
   if (imageBase64) {
     const raw      = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
     const mimeType = imageBase64.includes(';') ? imageBase64.split(';')[0].split(':')[1] : 'image/jpeg';
     parts.push({ inline_data: { mime_type: mimeType, data: raw } });
   }
 
-  const doRequest = async (retried) => {
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${S.apiKey}`,
-      {
+  const body = JSON.stringify({
+    contents: [{ parts }],
+    generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
+  });
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${S.apiKey}`;
+
+  // Overall timeout: 25 seconds max
+  const overallTimeout = setTimeout(() => {
+    if (_abortController) _abortController.abort();
+  }, 25000);
+
+  const doRequest = async (attempt) => {
+    try {
+      const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: _abortController?.signal,
-        body: JSON.stringify({
-          contents: [{ parts }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
-        })
-      }
-    );
-    S.lastGeminiCall = Date.now();
+        body
+      });
+      S.lastGeminiCall = Date.now();
 
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      if (resp.status === 429) {
-        if (retried >= 3) throw new Error('Превышен лимит запросов. Подожди 1-2 минуты и попробуй снова.');
-        const attempt = (retried || 0) + 1;
-        const wait = S.geminiPlan === 'free' ? (attempt * 8000) : 3000; // 8s, 16s, 24s
-        // Silent retry — no countdown timer to avoid confusing the user
-        await new Promise(r => setTimeout(r, wait));
-        return doRequest(attempt);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        if (resp.status === 429) {
+          if (attempt >= 2) throw new Error('Лимит запросов. Подожди 30 сек и попробуй снова.');
+          const wait = S.geminiPlan === 'free' ? 5000 : 2000;
+          await new Promise(r => setTimeout(r, wait));
+          return doRequest(attempt + 1);
+        }
+        if (resp.status === 400) {
+          const errMsg = err.error?.message || '';
+          // Model not found — try fallback
+          if (errMsg.includes('not found') && model !== DEFAULT_MODEL) {
+            console.warn('Model not found, falling back to', DEFAULT_MODEL);
+            _cachedModel = DEFAULT_MODEL;
+            ls('gemini_model', DEFAULT_MODEL);
+            return doRequest(attempt); // retry with default model (same attempt count)
+          }
+        }
+        throw new Error(err.error?.message || `HTTP ${resp.status}`);
       }
-      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+
+      const data = await resp.json();
+      console.log('Gemini response:', JSON.stringify(data).slice(0, 300));
+
+      const blocked = data.promptFeedback?.blockReason;
+      if (blocked) throw new Error('Запрос заблокирован: ' + blocked);
+
+      const candidate = data.candidates?.[0];
+      if (!candidate) throw new Error('Пустой ответ от AI');
+
+      if (candidate.finishReason === 'SAFETY') throw new Error('Ответ заблокирован фильтром безопасности');
+
+      let text = (candidate.content?.parts?.[0]?.text || '').trim();
+      if (!text) throw new Error('AI вернул пустой текст');
+      console.log('Gemini text:', text.slice(0, 300));
+      return text;
+    } catch(e) {
+      if (e.name === 'AbortError') throw new Error('Превышено время ожидания (25 сек). Попробуй ещё раз.');
+      throw e;
     }
-
-    const data = await resp.json();
-    console.log('Gemini full response:', JSON.stringify(data).slice(0, 500));
-
-    // Check for blocked responses
-    const blocked = data.promptFeedback?.blockReason;
-    if (blocked) throw new Error('Запрос заблокирован: ' + blocked);
-
-    const candidate = data.candidates?.[0];
-    if (!candidate) throw new Error('Пустой ответ от AI (нет candidates)');
-
-    const finishReason = candidate.finishReason;
-    if (finishReason === 'SAFETY') throw new Error('Ответ заблокирован фильтром безопасности');
-
-    let text = (candidate.content?.parts?.[0]?.text || '').trim();
-    if (!text) throw new Error('AI вернул пустой текст');
-    console.log('Gemini RAW text:', text.slice(0, 400));
-    return text;
   };
 
-  return doRequest(false);
+  try {
+    return await doRequest(0);
+  } finally {
+    clearTimeout(overallTimeout);
+  }
 }
 
 function fixZeroMacros(r) {
@@ -1746,6 +1766,8 @@ async function reanalyzeWithDescription() {
   if (!desc) { toast('Напиши что это за блюдо'); return; }
   if (!S.capturedImg) { toast('Нет фото для анализа'); return; }
   showScreen('loading');
+  const ls2 = $('loading-status');
+  if (ls2) ls2.textContent = 'Пересчитываю с описанием...';
   try {
     const result = await analyzeFood(S.capturedImg, desc);
     S.analysisResult = result;
@@ -3298,12 +3320,12 @@ const RU_MON  = ['января','февраля','марта','апреля','м
 function formatFullDate(d) { return `${RU_DAYS[d.getDay()]}, ${d.getDate()} ${RU_MON[d.getMonth()]}`; }
 function formatDayName(d)  { return RU_DAYSU[d.getDay()]; }
 
-function toast(msg) {
+function toast(msg, duration) {
   const el = $('toast');
   el.textContent = msg;
   el.classList.add('visible');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.remove('visible'), 3200);
+  toast._t = setTimeout(() => el.classList.remove('visible'), duration || 3200);
 }
 
 // ──────────────────────────────────────────
