@@ -1517,7 +1517,7 @@ async function makeThumbnail(dataUrl) {
 // ──────────────────────────────────────────
 // FIND WORKING GEMINI MODEL (cached in localStorage)
 // ──────────────────────────────────────────
-const DEFAULT_MODEL = 'gemini-2.0-flash';
+const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
 
 // ──────────────────────────────────────────
 // GEMINI API WRAPPER (rate-limited)
@@ -1589,9 +1589,9 @@ async function geminiRequest(prompt, imageBase64) {
           return doRequest(attempt + 1);
         }
         if (status === 404 || (status === 400 && errMsg.includes('not found'))) {
-          // Model doesn't exist — try gemini-1.5-flash as last resort
+          // Model doesn't exist — try gemini-2.0-flash-lite as fallback
           if (model === DEFAULT_MODEL) {
-            model = 'gemini-1.5-flash';
+            model = 'gemini-2.0-flash-lite';
             console.warn('Trying fallback model:', model);
             return doRequest(attempt);
           }
