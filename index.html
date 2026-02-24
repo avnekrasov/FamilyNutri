@@ -1320,7 +1320,6 @@ function updateSettings() {
   ls('user_birth', birth);     S.birthDate     = birth;
   if (height) { ls('user_height', height); S.heightCm    = height; }
   if (weight) { ls('user_weight', weight); S.weightKg    = weight; }
-  _cachedModel = null;
   S.dailyNorms = calcDailyNorms();
   updateNormsInfo();
   toast('Настройки сохранены ✅');
@@ -1518,43 +1517,7 @@ async function makeThumbnail(dataUrl) {
 // ──────────────────────────────────────────
 // FIND WORKING GEMINI MODEL (cached in localStorage)
 // ──────────────────────────────────────────
-let _cachedModel = ls('gemini_model') || null;
 const DEFAULT_MODEL = 'gemini-2.0-flash';
-let _modelDiscoveryDone = !!_cachedModel; // skip discovery if already cached
-
-async function findWorkingModel(key) {
-  if (_cachedModel) return _cachedModel;
-  if (_modelDiscoveryDone) return DEFAULT_MODEL;
-  _modelDiscoveryDone = true; // only try once per session
-
-  try {
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`
-    );
-    if (!r.ok) {
-      console.log('Model list fetch failed, using default:', DEFAULT_MODEL);
-      return DEFAULT_MODEL;
-    }
-    const data  = await r.json();
-    const names = (data.models || [])
-      .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
-      .map(m => m.name.replace('models/', ''))
-      .sort((a, b) => {
-        const score = s =>
-          (s.includes('2.5') ? 30 : s.includes('2.0') ? 20 : s.includes('1.5') ? 10 : 0) +
-          (s.includes('flash') ? 5 : 0) -
-          (s.includes('lite') ? 3 : 0);
-        return score(b) - score(a);
-      });
-    _cachedModel = names[0] || DEFAULT_MODEL;
-    ls('gemini_model', _cachedModel);
-    console.log('Gemini model selected:', _cachedModel);
-    return _cachedModel;
-  } catch(e) {
-    console.warn('Model discovery failed, using default:', e.message);
-    return DEFAULT_MODEL;
-  }
-}
 
 // ──────────────────────────────────────────
 // GEMINI API WRAPPER (rate-limited)
@@ -1573,18 +1536,15 @@ function cancelAnalysis() {
 
 async function geminiRequest(prompt, imageBase64) {
   _abortController = new AbortController();
-  const model = _cachedModel || ls('gemini_model') || DEFAULT_MODEL;
 
-  // Background model discovery — only once, doesn't block
-  if (!_modelDiscoveryDone) {
-    findWorkingModel(S.apiKey).catch(() => {});
-  }
+  // Always use default model — simple and reliable
+  let model = DEFAULT_MODEL;
 
   // Rate limiting for free plan
   if (S.geminiPlan === 'free' && S.lastGeminiCall > 0) {
     const elapsed = Date.now() - S.lastGeminiCall;
-    if (elapsed < 4000) {
-      await new Promise(r => setTimeout(r, 4000 - elapsed));
+    if (elapsed < 2000) {
+      await new Promise(r => setTimeout(r, 2000 - elapsed));
     }
   }
 
@@ -1599,14 +1559,15 @@ async function geminiRequest(prompt, imageBase64) {
     contents: [{ parts }],
     generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
   });
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${S.apiKey}`;
 
-  // Overall timeout: 25 seconds max
+  // Overall timeout: 20 seconds max
   const overallTimeout = setTimeout(() => {
     if (_abortController) _abortController.abort();
-  }, 25000);
+  }, 20000);
 
   const doRequest = async (attempt) => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${S.apiKey}`;
+    console.log(`Gemini request: model=${model}, attempt=${attempt}, hasImage=${!!imageBase64}`);
     try {
       const resp = await fetch(url, {
         method: 'POST',
@@ -1618,27 +1579,28 @@ async function geminiRequest(prompt, imageBase64) {
 
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        if (resp.status === 429) {
+        const errMsg = err.error?.message || '';
+        const status = resp.status;
+        console.warn(`Gemini error: ${status}`, errMsg.slice(0, 200));
+
+        if (status === 429) {
           if (attempt >= 2) throw new Error('Лимит запросов. Подожди 30 сек и попробуй снова.');
-          const wait = S.geminiPlan === 'free' ? 5000 : 2000;
-          await new Promise(r => setTimeout(r, wait));
+          await new Promise(r => setTimeout(r, attempt === 0 ? 3000 : 6000));
           return doRequest(attempt + 1);
         }
-        if (resp.status === 400) {
-          const errMsg = err.error?.message || '';
-          // Model not found — try fallback
-          if (errMsg.includes('not found') && model !== DEFAULT_MODEL) {
-            console.warn('Model not found, falling back to', DEFAULT_MODEL);
-            _cachedModel = DEFAULT_MODEL;
-            ls('gemini_model', DEFAULT_MODEL);
-            return doRequest(attempt); // retry with default model (same attempt count)
+        if (status === 404 || (status === 400 && errMsg.includes('not found'))) {
+          // Model doesn't exist — try gemini-1.5-flash as last resort
+          if (model === DEFAULT_MODEL) {
+            model = 'gemini-1.5-flash';
+            console.warn('Trying fallback model:', model);
+            return doRequest(attempt);
           }
         }
-        throw new Error(err.error?.message || `HTTP ${resp.status}`);
+        throw new Error(errMsg || `HTTP ${status}`);
       }
 
       const data = await resp.json();
-      console.log('Gemini response:', JSON.stringify(data).slice(0, 300));
+      console.log('Gemini OK:', JSON.stringify(data).slice(0, 200));
 
       const blocked = data.promptFeedback?.blockReason;
       if (blocked) throw new Error('Запрос заблокирован: ' + blocked);
@@ -1653,7 +1615,7 @@ async function geminiRequest(prompt, imageBase64) {
       console.log('Gemini text:', text.slice(0, 300));
       return text;
     } catch(e) {
-      if (e.name === 'AbortError') throw new Error('Превышено время ожидания (25 сек). Попробуй ещё раз.');
+      if (e.name === 'AbortError') throw new Error('Превышено время ожидания (20 сек). Попробуй ещё раз.');
       throw e;
     }
   };
@@ -3346,13 +3308,25 @@ async function testApiKey() {
   el.style.color = '#7D5A00';
   el.textContent = '⏳ Проверяю ключ...';
 
-  _cachedModel = null;
-  ls('gemini_model', '');
-
   try {
-    const model = await findWorkingModel(key);
-    el.style.background = '#D5F5E3'; el.style.color = '#1A7A40';
-    el.textContent = `✅ Gemini работает! Модель: ${model}`;
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_MODEL}:generateContent?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Ответь одним словом: привет' }] }],
+          generationConfig: { maxOutputTokens: 10 }
+        })
+      }
+    );
+    if (resp.ok) {
+      el.style.background = '#D5F5E3'; el.style.color = '#1A7A40';
+      el.textContent = `✅ Gemini работает! Модель: ${DEFAULT_MODEL}`;
+    } else {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+    }
   } catch(e) {
     el.style.background = '#FDEDEC'; el.style.color = '#943126';
     el.textContent = `❌ ${e.message}`;
