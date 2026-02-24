@@ -575,9 +575,12 @@ body {
     <div class="card" id="main-ai-advice" style="display:none">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <h3 style="font-size:15px;font-weight:800">🤖 Совет на сейчас</h3>
-        <span style="font-size:11px;color:var(--text-muted)" id="ai-advice-time"></span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:var(--text-muted)" id="ai-advice-time"></span>
+          <button id="ai-advice-btn" onclick="requestAIAdvice()" style="background:none;border:none;font-size:16px;cursor:pointer;padding:2px 6px;border-radius:8px" title="Обновить совет от AI">🔄</button>
+        </div>
       </div>
-      <div id="ai-advice-text" style="font-size:14px;line-height:1.6;color:var(--text)">Загружаю рекомендации...</div>
+      <div id="ai-advice-text" style="font-size:14px;line-height:1.6;color:var(--text)"></div>
     </div>
 
     <!-- FOOD + ACTIVITY BUTTONS (compact, side by side) -->
@@ -2518,29 +2521,55 @@ function refreshWeightWidget() {
 // ──────────────────────────────────────────
 let _lastAIAdvice = '';
 let _lastAIAdviceHash = '';
+let _lastAIAdviceTime = 0;
+let _aiAdviceInFlight = false;
 
 function refreshAIAdvice(t, burned, actOnly) {
   const card = $('main-ai-advice');
   if (!card) return;
 
-  // Build context hash to decide if we need a new AI call
   const hash = `${t.cal}-${t.p}-${t.f}-${t.c}-${burned}-${actOnly}-${new Date().getHours()}`;
-  if (hash === _lastAIAdviceHash && _lastAIAdvice) {
-    // Same data, show cached advice
+
+  // Show cached AI advice if available
+  if (_lastAIAdvice) {
     card.style.display = 'block';
     $('ai-advice-text').innerHTML = _lastAIAdvice;
     return;
   }
 
-  // Show fallback immediately, then try AI
+  // Otherwise show local tips (no API call)
   const fallback = buildQuickTips(t, burned, actOnly);
   card.style.display = 'block';
   $('ai-advice-text').innerHTML = fallback;
-  $('ai-advice-time').textContent = new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+  $('ai-advice-time').textContent = '';
+}
 
-  // Fire AI request in background (don't block UI)
-  if (S.apiKey && t.cal > 0) {
-    fetchAIAdvice(t, burned, actOnly, hash).catch(() => {});
+// Called by button press only
+async function requestAIAdvice() {
+  if (_aiAdviceInFlight) { toast('Загружаю совет...'); return; }
+  if (!S.apiKey) { toast('Нужен API ключ'); return; }
+
+  // Rate limit: no more than once per 3 minutes
+  const elapsed = Date.now() - _lastAIAdviceTime;
+  if (elapsed < 180000 && _lastAIAdvice) {
+    $('ai-advice-text').innerHTML = _lastAIAdvice;
+    toast('Совет обновлён недавно');
+    return;
+  }
+
+  const t = todayTotals();
+  const burned = todayBurnedCal();
+  const actOnly = todayActivityBurnOnly();
+  _aiAdviceInFlight = true;
+  $('ai-advice-btn').textContent = '⏳';
+
+  try {
+    await fetchAIAdvice(t, burned, actOnly, '');
+  } catch(e) {
+    console.warn('AI advice error:', e);
+  } finally {
+    _aiAdviceInFlight = false;
+    $('ai-advice-btn').textContent = '🔄';
   }
 }
 
@@ -2567,15 +2596,14 @@ function buildQuickTips(t, burned, actOnly) {
 }
 
 async function fetchAIAdvice(t, burned, actOnly, hash) {
-  try {
-    const entries = todayEntries();
-    const norm = S.dailyNorms.cal || 2000;
-    const balance = t.cal - burned;
-    const hour = new Date().getHours();
-    const meals = entries.map(e => e.dishName).join(', ') || 'ничего';
-    const age = calcAge(S.birthDate);
+  const entries = todayEntries();
+  const norm = S.dailyNorms.cal || 2000;
+  const balance = t.cal - burned;
+  const hour = new Date().getHours();
+  const meals = entries.map(e => e.dishName).join(', ') || 'ничего';
+  const age = calcAge(S.birthDate);
 
-    const prompt = `Ты диетолог-помощник. Дай КРАТКИЙ персональный совет (3-4 предложения) по питанию и активности на оставшийся день.
+  const prompt = `Ты диетолог-помощник. Дай КРАТКИЙ персональный совет (3-4 предложения) по питанию и активности на оставшийся день.
 
 Данные:
 - Возраст: ${age} лет, пол: ${S.gender === 'male' ? 'мужской' : 'женский'}, вес: ${S.weightKg} кг, рост: ${S.heightCm} см
@@ -2588,19 +2616,16 @@ async function fetchAIAdvice(t, burned, actOnly, hash) {
 
 Цель: быть в дефиците или балансе калорий. Порекомендуй конкретные блюда и активности. Говори на "ты", дружелюбно. Используй эмодзи. Только текст, без JSON/markdown.`;
 
-    const text = await geminiRequest(prompt);
-    _lastAIAdvice = text.split('\n').filter(l => l.trim()).map(l => `<div style="padding:3px 0">${l}</div>`).join('');
-    _lastAIAdviceHash = hash;
-    // Update UI if still on main screen
-    const card = $('main-ai-advice');
-    if (card) {
-      card.style.display = 'block';
-      $('ai-advice-text').innerHTML = _lastAIAdvice;
-      $('ai-advice-time').textContent = '🤖 ' + new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
-    }
-  } catch(e) {
-    console.warn('AI advice error:', e);
-    // Keep the fallback, don't overwrite
+  const text = await geminiRequest(prompt);
+  _lastAIAdvice = text.split('\n').filter(l => l.trim()).map(l => `<div style="padding:3px 0">${l}</div>`).join('');
+  _lastAIAdviceHash = hash;
+  _lastAIAdviceTime = Date.now();
+  // Update UI if still on main screen
+  const card = $('main-ai-advice');
+  if (card) {
+    card.style.display = 'block';
+    $('ai-advice-text').innerHTML = _lastAIAdvice;
+    $('ai-advice-time').textContent = '🤖 ' + new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   }
 }
 
@@ -2652,35 +2677,15 @@ function showFeedback(entry) {
   // Voice praise
   setTimeout(() => speak(praise.text(entry.dishName)), 400);
 
-  // Async plan from AI
-  $('fb-plan-text').textContent = 'Думаю...';
-  generateDayPlan(t, entries.length);
-}
-
-async function generateDayPlan(dayTotals, mealCount) {
-  try {
-    const burned = todayBurnedCal();
-    const balance = dayTotals.cal - burned;
-    const h = new Date().getHours();
-    const timeOfDay = h < 12 ? 'утро' : h < 17 ? 'день' : 'вечер';
-    const isDeficit = balance <= 0;
-
-    const prompt = `Ты добрый диетолог. Сейчас ${timeOfDay}. Съедено ${mealCount} приёмов пищи, всего ${dayTotals.cal} ккал. Сожжено ${burned} ккал (BMR + активность). Баланс: ${balance > 0 ? '+' : ''}${balance} ккал.
-${isDeficit ? 'Баланс в дефиците — это хорошо для контроля веса.' : 'Баланс в профиците. Мягко предложи прогулку или лёгкую активность.'}
-Цель — быть ближе к нулю или в небольшом дефиците. Дай КРАТКИЙ дружелюбный совет (2-3 предложения) на оставшийся день. Говори на "ты". НИКОГДА не ругай. Только текст, без JSON, без markdown.`;
-
-    const text = await geminiRequest(prompt);
-    $('fb-plan-text').textContent = text;
-  } catch {
-    // Fallback — simple local tips
-    const balance = dayTotals.cal - todayBurnedCal();
-    if (balance <= 0) {
-      $('fb-plan-text').textContent = 'Отличный баланс! Ты в дефиците калорий. Не забудь попить воды!';
-    } else if (balance < 200) {
-      $('fb-plan-text').textContent = 'Почти в балансе! Небольшая прогулка поможет снизить профицит.';
-    } else {
-      $('fb-plan-text').textContent = 'Есть профицит калорий. Прогулка или зарядка помогут его сбалансировать!';
-    }
+  // Local plan (no API call to avoid rate limits)
+  const burned = todayBurnedCal();
+  const balance = t.cal - burned;
+  if (balance <= 0) {
+    $('fb-plan-text').textContent = 'Отличный баланс! Ты в дефиците калорий. Не забудь попить воды!';
+  } else if (balance < 200) {
+    $('fb-plan-text').textContent = 'Почти в балансе! Небольшая прогулка поможет снизить профицит.';
+  } else {
+    $('fb-plan-text').textContent = 'Есть профицит калорий. Прогулка или зарядка помогут его сбалансировать!';
   }
 }
 
