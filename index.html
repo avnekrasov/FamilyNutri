@@ -542,6 +542,12 @@ body {
   </div>
 
   <div class="content padded-bottom">
+    <!-- VPN Warning -->
+    <div id="vpn-warning" style="display:none;background:#FFF3CD;border:1px solid #FFEAA7;border-radius:12px;padding:12px;margin-bottom:10px;font-size:13px;color:#856404"></div>
+    <!-- API Counter -->
+    <div style="text-align:right;margin-bottom:4px">
+      <span id="api-counter" style="display:none;font-size:11px;color:var(--text-muted)"></span>
+    </div>
     <!-- BALANCE CARD (first!) -->
     <div class="card" id="main-balance-card" style="display:none">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -620,7 +626,10 @@ body {
                onfocus="this.style.borderColor='var(--secondary)'" onblur="this.style.borderColor='var(--border)'">
         <button class="btn btn-secondary" style="width:auto;padding:12px 20px;border-radius:14px;font-size:14px" onclick="saveWeight()">💾</button>
       </div>
-      <div id="weight-mini-chart" style="margin-top:10px;font-size:12px;color:var(--text-muted)"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:6px">
+        <button onclick="saveWeightForPast()" style="background:none;border:none;font-size:12px;color:var(--text-muted);cursor:pointer;text-decoration:underline">Записать за прошлую дату</button>
+      </div>
+      <div id="weight-mini-chart" style="margin-top:6px;font-size:12px;color:var(--text-muted)"></div>
     </div>
 
     <!-- TODAY'S ACTIVITIES PREVIEW -->
@@ -788,7 +797,10 @@ body {
       <div class="plan-text" id="fb-plan-text">Думаю...</div>
     </div>
 
-    <button class="btn btn-primary" onclick="nav('main')">🏠 На главную</button>
+    <div id="fb-next-photo" style="display:none">
+      <button class="btn btn-secondary" onclick="processNextPhoto()" style="margin-bottom:8px">📸 Следующее фото <span id="fb-queue-count"></span></button>
+    </div>
+    <button class="btn btn-primary" onclick="_photoQueue=[];nav('main')">🏠 На главную</button>
     <p style="text-align:center;color:var(--text-muted);font-size:13px;font-weight:600;margin-top:16px;margin-bottom:10px">Записать ещё:</p>
     <div style="display:flex;gap:10px">
       <button class="btn btn-ghost" style="flex:1;font-size:14px;padding:14px 8px" onclick="triggerCamera()">📸 Фото</button>
@@ -819,15 +831,24 @@ body {
         <button class="activity-chip" data-type="walking" data-cal="3.8">🚶 Прогулка</button>
         <button class="activity-chip" data-type="running" data-cal="10">🏃 Бег</button>
         <button class="activity-chip" data-type="swimming" data-cal="7">🏊 Плавание</button>
+        <button class="activity-chip" data-type="skiing" data-cal="7">⛷️ Лыжи</button>
         <button class="activity-chip" data-type="football" data-cal="7">⚽ Футбол</button>
+        <button class="activity-chip" data-type="cycling" data-cal="6">🚴 Велосипед</button>
+        <button class="activity-chip" data-type="gym" data-cal="5">🏋️ Тренировка</button>
+        <button class="activity-chip" data-type="dancing" data-cal="5">💃 Танцы</button>
         <button class="activity-chip" data-type="yoga" data-cal="3">🧘 Зарядка</button>
         <button class="activity-chip" data-type="school_pe" data-cal="5">📚 Физкультура</button>
-        <button class="activity-chip" data-type="cycling" data-cal="6">🚴 Велосипед</button>
-        <button class="activity-chip" data-type="dancing" data-cal="5">💃 Танцы</button>
-        <button class="activity-chip" data-type="gym" data-cal="5">🏋️ Тренировка</button>
+        <button class="activity-chip" data-type="sauna" data-cal="2">🧖 Баня</button>
         <button class="activity-chip" data-type="cleaning" data-cal="3.5">🧹 Уборка</button>
-        <button class="activity-chip" data-type="study" data-cal="1.5">📖 Уроки/задания</button>
-        <button class="activity-chip" data-type="other" data-cal="4">➕ Другое</button>
+        <button class="activity-chip" data-type="reading" data-cal="1.2">📖 Чтение</button>
+        <button class="activity-chip" data-type="study" data-cal="1.5">📝 Уроки</button>
+        <button class="activity-chip" data-type="custom" data-cal="4">✏️ Своя</button>
+      </div>
+      <!-- Custom activity input (shown when "Своя" selected) -->
+      <div id="custom-activity-row" style="display:none;margin-top:10px">
+        <input type="text" id="custom-activity-name" placeholder="Название активности (напр: скалолазание)"
+               style="width:100%;padding:10px;border:2px solid var(--border);border-radius:12px;font-size:14px;font-family:inherit;outline:none"
+               onfocus="this.style.borderColor='var(--secondary)'" onblur="this.style.borderColor='var(--border)'">
       </div>
     </div>
 
@@ -840,6 +861,14 @@ body {
         <button class="duration-chip" data-min="60">1 час</button>
         <button class="duration-chip" data-min="90">1.5 часа</button>
         <button class="duration-chip" data-min="120">2+ часа</button>
+      </div>
+      <!-- Custom duration input -->
+      <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+        <input type="number" id="custom-duration" placeholder="Или введи минуты" min="1" max="600"
+               style="flex:1;padding:10px;border:2px solid var(--border);border-radius:12px;font-size:14px;font-family:inherit;outline:none;text-align:center"
+               onfocus="this.style.borderColor='var(--secondary)'" onblur="this.style.borderColor='var(--border)'"
+               oninput="onCustomDuration(this.value)">
+        <span style="font-size:13px;color:var(--text-muted)">мин</span>
       </div>
     </div>
 
@@ -1171,7 +1200,7 @@ body {
 </div>
 
 <!-- Hidden file input — no capture attr so iOS shows camera+gallery choice -->
-<input type="file" id="file-input" accept="image/*"
+<input type="file" id="file-input" accept="image/*" multiple
        style="display:none" onchange="onPhotoSelected(event)">
 
 <!-- Toast notification -->
@@ -1233,6 +1262,10 @@ function init() {
     showScreen('main');
     refreshMain();
   }
+
+  // Background checks
+  updateApiCounterUI();
+  checkGoogleAccess().catch(() => {});
 }
 
 // ──────────────────────────────────────────
@@ -1438,21 +1471,36 @@ function triggerCamera() {
   $('file-input').click();
 }
 
+let _photoQueue = [];
+
 function onPhotoSelected(ev) {
-  const file = ev.target.files[0];
-  if (!file) return;
+  const files = Array.from(ev.target.files);
+  if (!files.length) return;
   if (!S.apiKey) { toast('Сначала введи API ключ в Настройках'); nav('settings'); return; }
+
+  if (files.length > 1) {
+    // Multiple photos — queue them
+    _photoQueue = files.slice(1);
+    toast(`📷 ${files.length} фото — анализирую по очереди`);
+  } else {
+    _photoQueue = [];
+  }
+  processOnePhoto(files[0]);
+}
+
+function processOnePhoto(file) {
   const reader = new FileReader();
   reader.onload = async e => {
     showScreen('loading');
     const ls_ = $('loading-status');
-    if (ls_) ls_.textContent = 'Сжимаю фото...';
+    const qLen = _photoQueue.length;
+    if (ls_) ls_.textContent = qLen > 0 ? `Сжимаю фото (ещё ${qLen})...` : 'Сжимаю фото...';
     const t0 = Date.now();
     try {
       const compressed     = await compressImg(e.target.result, 800, 0.75);
       S.capturedImg        = compressed;
       S.analysisResult     = null;
-      if (ls_) ls_.textContent = 'Отправляю на распознавание...';
+      if (ls_) ls_.textContent = qLen > 0 ? `Распознаю (ещё ${qLen})...` : 'Отправляю на распознавание...';
       const result         = await analyzeFood(compressed);
       S.analysisResult     = result;
       fillConfirmScreen(result, compressed);
@@ -1463,6 +1511,7 @@ function onPhotoSelected(ev) {
     } catch (err) {
       console.error('Photo analysis error:', err, 'after', Date.now() - t0, 'ms');
       showScreen('main');
+      _photoQueue = [];
       const msg = err.message || '';
       if (msg.includes('API_KEY') || msg.includes('API key') || msg.includes('401') || msg.includes('403')) {
         toast('❌ Неверный API ключ. Проверь в Настройках.', 4000);
@@ -1478,6 +1527,13 @@ function onPhotoSelected(ev) {
     }
   };
   reader.readAsDataURL(file);
+}
+
+function processNextPhoto() {
+  if (_photoQueue.length > 0) {
+    const next = _photoQueue.shift();
+    processOnePhoto(next);
+  }
 }
 
 async function compressImg(dataUrl, maxDim, quality) {
@@ -1515,9 +1571,53 @@ async function makeThumbnail(dataUrl) {
 }
 
 // ──────────────────────────────────────────
-// FIND WORKING GEMINI MODEL (cached in localStorage)
+// GEMINI MODEL & REQUEST COUNTER
 // ──────────────────────────────────────────
 const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
+
+// API request counter (persisted per day in localStorage)
+function getApiCounter() {
+  try {
+    const data = JSON.parse(localStorage.getItem('api_counter') || '{}');
+    const today = fmtDate(new Date());
+    if (data.date !== today) return { date: today, count: 0, firstCall: 0 };
+    return data;
+  } catch { return { date: fmtDate(new Date()), count: 0, firstCall: 0 }; }
+}
+function incApiCounter() {
+  const c = getApiCounter();
+  c.count++;
+  if (!c.firstCall) c.firstCall = Date.now();
+  localStorage.setItem('api_counter', JSON.stringify(c));
+  updateApiCounterUI();
+}
+function updateApiCounterUI() {
+  const el = $('api-counter');
+  if (!el) return;
+  const c = getApiCounter();
+  const limit = S.geminiPlan === 'free' ? 1000 : 9999;
+  const left = Math.max(0, limit - c.count);
+  el.textContent = `Запросов: ${c.count}/${limit}`;
+  el.style.color = left <= 5 ? 'var(--unhealthy)' : left <= 20 ? '#F39C12' : 'var(--text-muted)';
+  el.style.display = 'inline';
+}
+
+// VPN/Region check — test if Google API reachable
+async function checkGoogleAccess() {
+  try {
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=test', { method: 'GET' });
+    // 400 or 403 means API is reachable (just invalid key)
+    return true;
+  } catch(e) {
+    // Network error = probably blocked
+    const warn = $('vpn-warning');
+    if (warn) {
+      warn.style.display = 'block';
+      warn.innerHTML = '⚠️ Сервисы Google недоступны из вашего региона. <b>Включите VPN</b> для работы приложения.';
+    }
+    return false;
+  }
+}
 
 // ──────────────────────────────────────────
 // GEMINI API WRAPPER (rate-limited)
@@ -1576,6 +1676,7 @@ async function geminiRequest(prompt, imageBase64) {
         body
       });
       S.lastGeminiCall = Date.now();
+      incApiCounter();
 
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
@@ -1877,6 +1978,7 @@ function fillConfirmScreen(r, imgData) {
 
   $('confirm-ai-comment').textContent = r.health_comment || '';
   $('confirm-comment').value = '';
+  if ($('confirm-describe')) $('confirm-describe').value = '';
   $('confirm-listening').classList.add('hidden');
 }
 
@@ -2275,23 +2377,43 @@ document.querySelectorAll('#activity-types .activity-chip').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#activity-types .activity-chip').forEach(b => b.classList.remove('selected'));
     btn.classList.add('selected');
-    _selActivityType = {
-      type: btn.dataset.type,
-      cal:  parseFloat(btn.dataset.cal),
-      label: btn.textContent.trim()
-    };
+    const isCustom = btn.dataset.type === 'custom';
+    $('custom-activity-row').style.display = isCustom ? 'block' : 'none';
+    if (isCustom) {
+      $('custom-activity-name').focus();
+      _selActivityType = { type: 'custom', cal: 4, label: '✏️ ' + ($('custom-activity-name').value || 'Своя активность') };
+    } else {
+      _selActivityType = { type: btn.dataset.type, cal: parseFloat(btn.dataset.cal), label: btn.textContent.trim() };
+    }
     updateActivityPreview();
   });
+});
+// Update custom activity name on input
+document.addEventListener('input', e => {
+  if (e.target.id === 'custom-activity-name' && _selActivityType?.type === 'custom') {
+    _selActivityType.label = '✏️ ' + (e.target.value.trim() || 'Своя активность');
+    updateActivityPreview();
+  }
 });
 
 document.querySelectorAll('#duration-options .duration-chip').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#duration-options .duration-chip').forEach(b => b.classList.remove('selected'));
     btn.classList.add('selected');
+    $('custom-duration').value = '';
     _selDurationMin = parseInt(btn.dataset.min);
     updateActivityPreview();
   });
 });
+
+function onCustomDuration(val) {
+  const min = parseInt(val);
+  if (min > 0) {
+    document.querySelectorAll('#duration-options .duration-chip').forEach(b => b.classList.remove('selected'));
+    _selDurationMin = min;
+    updateActivityPreview();
+  }
+}
 
 function updateActivityPreview() {
   const prev = $('activity-preview');
@@ -2349,7 +2471,18 @@ function saveActivity() {
   $('activity-photo-preview').style.display = 'none';
   $('activity-photo-input').value = '';
 
-  toast('🏃 Активность записана! −' + burned + ' ккал');
+  // Hydration recommendation for long/intense activities
+  const isIntense = _selActivityType ? _selActivityType.cal >= 5 : false;
+  const isLong = entry.duration >= 30;
+  let actMsg = '🏃 Активность записана! −' + burned + ' ккал';
+  if (isLong || isIntense) {
+    const waterMl = Math.round(entry.duration * (isIntense ? 10 : 7));
+    actMsg += `\n💧 Выпей ~${waterMl} мл воды!`;
+  }
+  if ($('custom-activity-row')) $('custom-activity-row').style.display = 'none';
+  if ($('custom-duration')) $('custom-duration').value = '';
+  if ($('custom-activity-name')) $('custom-activity-name').value = '';
+  toast(actMsg, isLong || isIntense ? 5000 : 3200);
   nav('main');
 }
 
@@ -2393,18 +2526,18 @@ function getWeightHistory() {
   catch { return []; }
 }
 
-function saveWeight() {
+function saveWeight(dateOverride) {
   const input = $('weight-today-input');
   const val = parseFloat(input.value);
   if (!val || val < 20 || val > 300) { toast('Введи корректный вес (20-300 кг)'); return; }
 
-  const today = fmtDate(new Date());
+  const date = dateOverride || fmtDate(new Date());
   const history = getWeightHistory();
-  const idx = history.findIndex(w => w.date === today);
+  const idx = history.findIndex(w => w.date === date);
   if (idx >= 0) {
     history[idx].kg = val;
   } else {
-    history.push({ date: today, kg: val });
+    history.push({ date, kg: val });
   }
   localStorage.setItem('weight_history', JSON.stringify(history));
 
@@ -2413,8 +2546,18 @@ function saveWeight() {
   ls('user_weight', val);
   S.dailyNorms = calcDailyNorms();
 
-  toast('⚖️ Вес записан: ' + val + ' кг');
+  toast('⚖️ Вес записан: ' + val + ' кг' + (dateOverride ? ' за ' + dateOverride : ''));
   refreshMain();
+}
+
+function saveWeightForPast() {
+  const date = prompt('Дата (ГГГГ-ММ-ДД):', fmtDate(new Date()));
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast('Неверный формат даты'); return; }
+  if (date > fmtDate(new Date())) { toast('Нельзя записать вес в будущем'); return; }
+  const val = parseFloat(prompt('Вес (кг):', S.weightKg || ''));
+  if (!val || val < 20 || val > 300) { toast('Введи корректный вес (20-300 кг)'); return; }
+  $('weight-today-input').value = val;
+  saveWeight(date);
 }
 
 function refreshWeightWidget() {
@@ -2649,6 +2792,17 @@ function showFeedback(entry) {
   } else {
     $('fb-plan-text').textContent = 'Есть профицит калорий. Прогулка или зарядка помогут его сбалансировать!';
   }
+
+  // Show "next photo" button if queue has items
+  const nextBtn = $('fb-next-photo');
+  if (nextBtn) {
+    if (_photoQueue.length > 0) {
+      nextBtn.style.display = 'block';
+      $('fb-queue-count').textContent = `(ещё ${_photoQueue.length})`;
+    } else {
+      nextBtn.style.display = 'none';
+    }
+  }
 }
 
 // ──────────────────────────────────────────
@@ -2780,11 +2934,14 @@ function renderDiary() {
   $('diary-title').textContent    = isToday ? 'Сегодня' : formatDayName(d);
   $('diary-subtitle').textContent = formatFullDate(d);
 
-  const entries = getEntries().filter(e => e.date === fmtDate(d));
+  const dateStr = fmtDate(d);
+  const entries = getEntries().filter(e => e.date === dateStr);
+  const dayActivities = getActivities().filter(a => a.date === dateStr);
+  const dayWeight = getWeightHistory().find(w => w.date === dateStr);
   const t       = totals(entries);
   const cont    = $('diary-content');
 
-  if (!entries.length) {
+  if (!entries.length && !dayActivities.length && !dayWeight) {
     cont.innerHTML = `
       <div class="totals-card">
         <div class="ttl">За этот день</div>
@@ -2825,7 +2982,6 @@ function renderDiary() {
   });
 
   // Activities for this day
-  const dayActivities = getActivities().filter(a => a.date === fmtDate(d));
   if (dayActivities.length) {
     const totalBurned = dayActivities.reduce((s, a) => s + (a.calBurned || 0), 0);
     html += `<div class="diary-section">
@@ -2847,7 +3003,6 @@ function renderDiary() {
   }
 
   // Weight for this day
-  const dayWeight = getWeightHistory().find(w => w.date === fmtDate(d));
   if (dayWeight) {
     html += `
     <div class="diary-section">
@@ -3512,24 +3667,56 @@ async function cloudSaveBackup() {
     if (data.activities) {
       data.activities = data.activities.map(a => ({ ...a, photo: null }));
     }
-    await _fbDb.collection('backups').doc(_fbUser.uid).set(data);
+    await _fbDb.collection('users').doc(_fbUser.uid).set(data);
     $('auth-user-sync').textContent = 'Сохранено ' + new Date().toLocaleTimeString() + ' ✅';
     toast('☁️ Данные сохранены в облако!');
   } catch(err) {
-    toast('❌ Ошибка: ' + (err.message || '').slice(0, 50));
+    const msg = err.message || '';
+    if (msg.includes('permission') || msg.includes('PERMISSION_DENIED')) {
+      toast('❌ Нет прав. Нужно настроить Firestore Rules в Firebase Console (см. ниже)', 6000);
+      showFirestoreRulesHelp();
+    } else {
+      toast('❌ Ошибка: ' + msg.slice(0, 60));
+    }
   }
 }
 
 async function cloudLoadBackup() {
   if (!_fbUser || !_fbDb) { toast('Сначала войдите в аккаунт'); return; }
   try {
-    const doc = await _fbDb.collection('backups').doc(_fbUser.uid).get();
-    if (!doc.exists) { toast('Бэкап не найден в облаке'); return; }
+    const doc = await _fbDb.collection('users').doc(_fbUser.uid).get();
+    if (!doc.exists) {
+      // Try old collection name
+      const oldDoc = await _fbDb.collection('backups').doc(_fbUser.uid).get();
+      if (oldDoc.exists) {
+        restoreFromBackup(oldDoc.data());
+        toast('📥 Данные загружены из облака!');
+        return;
+      }
+      toast('Бэкап не найден в облаке');
+      return;
+    }
     const data = doc.data();
     restoreFromBackup(data);
     toast('📥 Данные загружены из облака!');
   } catch(err) {
-    toast('❌ Ошибка: ' + (err.message || '').slice(0, 50));
+    const msg = err.message || '';
+    if (msg.includes('permission') || msg.includes('PERMISSION_DENIED')) {
+      toast('❌ Нет прав. Нужно настроить Firestore Rules в Firebase Console', 6000);
+      showFirestoreRulesHelp();
+    } else {
+      toast('❌ Ошибка: ' + msg.slice(0, 60));
+    }
+  }
+}
+
+function showFirestoreRulesHelp() {
+  const el = $('auth-user-sync');
+  if (el) {
+    el.innerHTML = `❌ Нужно настроить правила Firestore:<br>
+    <a href="https://console.firebase.google.com/project/familynutri-62784/firestore/rules" target="_blank" style="color:#3498DB;font-size:11px">
+    Открыть Firestore Rules</a><br>
+    <span style="font-size:10px">Вставить: <code>allow read, write: if request.auth != null;</code></span>`;
   }
 }
 
