@@ -3702,7 +3702,8 @@ async function cloudSaveBackup() {
       data.activities = data.activities.map(a => ({ ...a, photo: null }));
     }
     await _fbDb.collection('users').doc(_fbUser.uid).set(data);
-    $('auth-user-sync').textContent = 'Сохранено ' + new Date().toLocaleTimeString() + ' ✅';
+    console.log('✅ Backup saved for UID:', _fbUser.uid);
+    $('auth-user-sync').textContent = 'Сохранено ' + new Date().toLocaleTimeString() + ' ✅  (ID: ' + _fbUser.uid.slice(0,8) + '…)';
     toast('☁️ Данные сохранены в облако!');
   } catch(err) {
     const msg = err.message || '';
@@ -3717,27 +3718,37 @@ async function cloudSaveBackup() {
 
 async function cloudLoadBackup() {
   if (!_fbUser || !_fbDb) { toast('Сначала войдите в аккаунт'); return; }
+  const uid = _fbUser.uid;
+  let permissionError = false;
   try {
     let data = null;
     // Try main collection
     try {
-      const doc = await _fbDb.collection('users').doc(_fbUser.uid).get();
+      const doc = await _fbDb.collection('users').doc(uid).get();
       if (doc.exists) data = doc.data();
     } catch(e) {
-      console.warn('users collection read failed:', e.code || e.message);
+      const errMsg = (e.code || '') + ' ' + (e.message || '');
+      console.warn('users collection read failed:', errMsg);
+      if (errMsg.includes('permission') || errMsg.includes('PERMISSION')) permissionError = true;
     }
     // Fallback to old collection
     if (!data) {
       try {
-        const oldDoc = await _fbDb.collection('backups').doc(_fbUser.uid).get();
+        const oldDoc = await _fbDb.collection('backups').doc(uid).get();
         if (oldDoc.exists) data = oldDoc.data();
       } catch(e) {
-        console.warn('backups collection read failed:', e.code || e.message);
+        const errMsg = (e.code || '') + ' ' + (e.message || '');
+        console.warn('backups collection read failed:', errMsg);
+        if (errMsg.includes('permission') || errMsg.includes('PERMISSION')) permissionError = true;
       }
     }
     if (!data) {
-      const uid = _fbUser.uid.slice(0,8);
-      toast('Бэкап не найден (ID: ' + uid + '…). Убедись что email совпадает на обоих устройствах и что ты сначала сохранил данные.', 6000);
+      if (permissionError) {
+        toast('❌ Нет прав на чтение данных. Настрой Firestore Rules в Firebase Console.', 6000);
+        showFirestoreRulesHelp();
+      } else {
+        toast('Бэкап не найден (ID: ' + uid.slice(0,8) + '…). Убедись что email совпадает на обоих устройствах и что данные были сохранены.', 6000);
+      }
       return;
     }
     restoreFromBackup(data);
