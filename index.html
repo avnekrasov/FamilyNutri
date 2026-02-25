@@ -3578,28 +3578,34 @@ async function cloudSignIn() {
   if (btn) { btn.textContent = '⏳ Подключение...'; btn.disabled = true; }
 
   try {
-    // Try email/password sign in first (simplest)
-    await _fbAuth.signInWithEmailAndPassword(email, 'familynutri2024');
-    toast('✅ Вход выполнен!');
-  } catch(signInErr) {
-    if (signInErr.code === 'auth/user-not-found' || signInErr.code === 'auth/invalid-credential') {
-      // User doesn't exist — create account
+    // Try all password variants in order
+    let loggedIn = false;
+    const passwords = ['familynutri2024', 'familynutri-' + email];
+    for (const pwd of passwords) {
+      try {
+        await _fbAuth.signInWithEmailAndPassword(email, pwd);
+        loggedIn = true;
+        toast('✅ Вход выполнен!');
+        break;
+      } catch(e) {
+        console.log('Sign-in attempt failed:', e.code);
+      }
+    }
+    if (!loggedIn) {
+      // User doesn't exist — create new account
       try {
         await _fbAuth.createUserWithEmailAndPassword(email, 'familynutri2024');
         toast('✅ Аккаунт создан!');
       } catch(createErr) {
-        handleFirebaseAuthError(createErr);
+        if (createErr.code === 'auth/email-already-in-use') {
+          toast('❌ Аккаунт с этим email уже существует, но пароль не подходит. Обратитесь к администратору.', 5000);
+        } else {
+          handleFirebaseAuthError(createErr);
+        }
       }
-    } else if (signInErr.code === 'auth/wrong-password') {
-      // Try with old password format
-      try {
-        await _fbAuth.signInWithEmailAndPassword(email, 'familynutri-' + email);
-      } catch {
-        handleFirebaseAuthError(signInErr);
-      }
-    } else {
-      handleFirebaseAuthError(signInErr);
     }
+  } catch(outerErr) {
+    handleFirebaseAuthError(outerErr);
   } finally {
     if (btn) { btn.textContent = origText; btn.disabled = false; }
   }
@@ -3684,21 +3690,30 @@ async function cloudSaveBackup() {
 async function cloudLoadBackup() {
   if (!_fbUser || !_fbDb) { toast('Сначала войдите в аккаунт'); return; }
   try {
-    const doc = await _fbDb.collection('users').doc(_fbUser.uid).get();
-    if (!doc.exists) {
-      // Try old collection name
-      const oldDoc = await _fbDb.collection('backups').doc(_fbUser.uid).get();
-      if (oldDoc.exists) {
-        restoreFromBackup(oldDoc.data());
-        toast('📥 Данные загружены из облака!');
-        return;
+    let data = null;
+    // Try main collection
+    try {
+      const doc = await _fbDb.collection('users').doc(_fbUser.uid).get();
+      if (doc.exists) data = doc.data();
+    } catch(e) {
+      console.warn('users collection read failed:', e.code || e.message);
+    }
+    // Fallback to old collection
+    if (!data) {
+      try {
+        const oldDoc = await _fbDb.collection('backups').doc(_fbUser.uid).get();
+        if (oldDoc.exists) data = oldDoc.data();
+      } catch(e) {
+        console.warn('backups collection read failed:', e.code || e.message);
       }
-      toast('Бэкап не найден в облаке');
+    }
+    if (!data) {
+      toast('Бэкап не найден в облаке. Убедись что вошёл с тем же email.', 4000);
       return;
     }
-    const data = doc.data();
     restoreFromBackup(data);
     toast('📥 Данные загружены из облака!');
+    refreshMain();
   } catch(err) {
     const msg = err.message || '';
     if (msg.includes('permission') || msg.includes('PERMISSION_DENIED')) {
