@@ -744,6 +744,30 @@ body {
     </div>
 
     <div class="card" style="margin-top:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div class="form-group" style="margin-bottom:0">
+          <label>🍽️ Степень голода</label>
+          <select id="confirm-hunger" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;background:var(--card);color:var(--text)">
+            <option value="0">— Не указано —</option>
+            <option value="1">😫 Очень голоден</option>
+            <option value="2">😋 Голоден</option>
+            <option value="3" selected>🙂 Нормально</option>
+            <option value="4">😊 Сыт</option>
+            <option value="5">🤢 Переел</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>😋 Удовольствие</label>
+          <select id="confirm-enjoy" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;background:var(--card);color:var(--text)">
+            <option value="0">— Не указано —</option>
+            <option value="1">😞 Невкусно</option>
+            <option value="2">😐 Нормально</option>
+            <option value="3" selected>🙂 Вкусно</option>
+            <option value="4">😍 Очень вкусно</option>
+            <option value="5">🤩 Восторг</option>
+          </select>
+        </div>
+      </div>
       <div class="form-group" style="margin-bottom:0">
         <label>Комментарий (необязательно)</label>
         <div class="input-with-voice">
@@ -1616,16 +1640,25 @@ function updateApiCounterUI() {
 
 // VPN/Region check — test if Google API reachable
 async function checkGoogleAccess() {
+  const warn = $('vpn-warning');
   try {
-    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=test', { method: 'GET' });
-    // 400 or 403 means API is reachable (just invalid key)
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=test', {
+      method: 'GET', signal: ctrl.signal, mode: 'cors'
+    });
+    clearTimeout(timer);
+    // Any HTTP response means API is reachable (400/403 = invalid key, that's OK)
+    if (warn) warn.style.display = 'none';
     return true;
   } catch(e) {
-    // Network error = probably blocked
-    const warn = $('vpn-warning');
+    // Network error or timeout = probably blocked by region
+    console.warn('Google API check failed:', e.message);
     if (warn) {
       warn.style.display = 'block';
-      warn.innerHTML = '⚠️ Сервисы Google недоступны из вашего региона. <b>Включите VPN</b> для работы приложения.';
+      warn.innerHTML = '⚠️ <b>Google AI недоступен</b> — вероятно, ваш регион заблокирован. ' +
+        '<b>Включите VPN</b> (любая страна кроме РФ/СНГ) для работы анализа еды.<br>' +
+        '<span style="font-size:11px;opacity:0.8">Рекомендуемые: Финляндия, Германия, Нидерланды, США</span>';
     }
     return false;
   }
@@ -2008,6 +2041,9 @@ function fillConfirmScreen(r, imgData) {
       mealSel.style.boxShadow = 'none';
     }
   }
+  // Reset hunger/enjoyment to defaults
+  if ($('confirm-hunger')) $('confirm-hunger').value = '3';
+  if ($('confirm-enjoy'))  $('confirm-enjoy').value = '3';
 }
 
 function speakConfirm() {
@@ -2172,6 +2208,8 @@ async function autoSaveFromConfirm() {
     aiComment:   r.health_comment || '',
     portion:     r.portion || '',
     userComment: $('confirm-comment')?.value?.trim() || '',
+    hunger:      parseInt($('confirm-hunger')?.value) || 0,
+    enjoyment:   parseInt($('confirm-enjoy')?.value) || 0,
     thumbnail:   thumb,
   };
 
@@ -2867,6 +2905,8 @@ async function saveEntry() {
     aiComment:   S.analysisResult?.health_comment || '',
     portion:     S.analysisResult?.portion || '',
     userComment: $('edit-comment').value.trim(),
+    hunger:      parseInt($('confirm-hunger')?.value) || 0,
+    enjoyment:   parseInt($('confirm-enjoy')?.value) || 0,
     thumbnail:   thumb,
   };
 
@@ -3070,24 +3110,137 @@ function renderEntry(e, showDel) {
   const thumb    = e.thumbnail
     ? `<div class="meal-thumb"><img src="${e.thumbnail}" alt=""></div>`
     : `<div class="meal-thumb">🍽️</div>`;
-  const del = showDel
-    ? `<button class="delete-btn" onclick="deleteEntry(${e.id})">🗑️</button>`
+  const actions = showDel
+    ? `<button class="delete-btn" onclick="event.stopPropagation();editEntry(${e.id})" title="Редактировать">✏️</button>
+       <button class="delete-btn" onclick="event.stopPropagation();deleteEntry(${e.id})" title="Удалить">🗑️</button>`
+    : '';
+  const hungerLabels = ['', '😫 Очень голоден', '😋 Голоден', '🙂 Нормально', '😊 Сыт', '🤢 Переел'];
+  const enjoyLabels  = ['', '😞 Невкусно', '😐 Нормально', '🙂 Вкусно', '😍 Очень вкусно', '🤩 Восторг'];
+  const indicators = [];
+  if (e.hunger)    indicators.push(hungerLabels[e.hunger] || '');
+  if (e.enjoyment) indicators.push(enjoyLabels[e.enjoyment] || '');
+  const indicatorHtml = indicators.length
+    ? `<div style="display:flex;gap:8px;margin-top:2px;font-size:11px;opacity:0.75">${indicators.map(i => `<span>${i}</span>`).join('')}</div>`
     : '';
   return `
-    <div class="meal-entry ${e.healthColor || 'yellow'}" style="border-left-color:${border}">
+    <div class="meal-entry ${e.healthColor || 'yellow'}" style="border-left-color:${border};cursor:pointer" onclick="editEntry(${e.id})">
       ${thumb}
       <div class="meal-info">
         <div class="meal-name">${esc(e.dishName)}</div>
         <div class="meal-time">${e.time}${e.portion ? ' · ' + esc(e.portion) : ''}</div>
         <div class="meal-macros">Б: ${e.proteins}г · Ж: ${e.fats}г · У: ${e.carbs}г</div>
+        ${indicatorHtml}
         ${e.userComment ? `<div class="meal-user-comment">"${esc(e.userComment)}"</div>` : ''}
       </div>
       <div class="meal-right">
         <div class="meal-calories">${e.calories}</div>
         <div class="meal-cal-label">ккал</div>
-        ${del}
+        ${actions}
       </div>
     </div>`;
+}
+
+function editEntry(id) {
+  const all = getEntries();
+  const e = all.find(x => x.id === id);
+  if (!e) { toast('Запись не найдена'); return; }
+
+  const mealOpts = [
+    ['breakfast', '🌅 Завтрак'], ['second_breakfast', '☀️ Второй завтрак'],
+    ['lunch', '🌞 Обед'], ['snack', '🍎 Полдник'],
+    ['dinner', '🌙 Ужин'], ['extra', '🍬 Перекус']
+  ].map(([v, l]) => `<option value="${v}"${e.mealType === v ? ' selected' : ''}>${l}</option>`).join('');
+
+  const hungerOpts = [
+    [0, '— Не указано —'], [1, '😫 Очень голоден'], [2, '😋 Голоден'],
+    [3, '🙂 Нормально'], [4, '😊 Сыт'], [5, '🤢 Переел']
+  ].map(([v, l]) => `<option value="${v}"${(e.hunger || 0) == v ? ' selected' : ''}>${l}</option>`).join('');
+
+  const enjoyOpts = [
+    [0, '— Не указано —'], [1, '😞 Невкусно'], [2, '😐 Нормально'],
+    [3, '🙂 Вкусно'], [4, '😍 Очень вкусно'], [5, '🤩 Восторг']
+  ].map(([v, l]) => `<option value="${v}"${(e.enjoyment || 0) == v ? ' selected' : ''}>${l}</option>`).join('');
+
+  // Create modal overlay
+  const overlay = document.createElement('div');
+  overlay.id = 'edit-entry-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.innerHTML = `
+    <div style="background:var(--card);border-radius:20px;padding:20px;width:100%;max-width:400px;max-height:90vh;overflow-y:auto">
+      <h3 style="margin:0 0 16px;font-size:17px">✏️ Редактировать запись</h3>
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">Название</label>
+        <input type="text" id="ee-name" value="${esc(e.dishName)}" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text)">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">Приём пищи</label>
+        <select id="ee-meal" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text)">${mealOpts}</select>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">Порция</label>
+        <input type="text" id="ee-portion" value="${esc(e.portion || '')}" placeholder="напр: 200г, большая тарелка" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text)">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Ккал</label>
+          <input type="number" id="ee-cal" value="${e.calories || 0}" style="width:100%;padding:8px;border:2px solid var(--border);border-radius:10px;font-size:14px;text-align:center;font-family:inherit;background:var(--bg);color:var(--text)" inputmode="numeric">
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Белки</label>
+          <input type="number" id="ee-p" value="${e.proteins || 0}" style="width:100%;padding:8px;border:2px solid var(--border);border-radius:10px;font-size:14px;text-align:center;font-family:inherit;background:var(--bg);color:var(--text)" inputmode="numeric">
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Жиры</label>
+          <input type="number" id="ee-f" value="${e.fats || 0}" style="width:100%;padding:8px;border:2px solid var(--border);border-radius:10px;font-size:14px;text-align:center;font-family:inherit;background:var(--bg);color:var(--text)" inputmode="numeric">
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Углеводы</label>
+          <input type="number" id="ee-c" value="${e.carbs || 0}" style="width:100%;padding:8px;border:2px solid var(--border);border-radius:10px;font-size:14px;text-align:center;font-family:inherit;background:var(--bg);color:var(--text)" inputmode="numeric">
+        </div>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">🍽️ Степень голода</label>
+        <select id="ee-hunger" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text)">${hungerOpts}</select>
+      </div>
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">😋 Удовольствие от еды</label>
+        <select id="ee-enjoy" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text)">${enjoyOpts}</select>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="saveEditEntry(${id})" style="flex:1;padding:14px;border:none;border-radius:12px;background:var(--primary);color:#fff;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer">💾 Сохранить</button>
+        <button onclick="closeEditEntry()" style="flex:1;padding:14px;border:2px solid var(--border);border-radius:12px;background:transparent;color:var(--text);font-size:15px;font-family:inherit;cursor:pointer">Отмена</button>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', ev => { if (ev.target === overlay) closeEditEntry(); });
+  document.body.appendChild(overlay);
+}
+
+function saveEditEntry(id) {
+  const all = getEntries();
+  const idx = all.findIndex(x => x.id === id);
+  if (idx < 0) { toast('Запись не найдена'); closeEditEntry(); return; }
+
+  all[idx].dishName  = document.getElementById('ee-name').value.trim() || all[idx].dishName;
+  all[idx].mealType  = document.getElementById('ee-meal').value;
+  all[idx].portion   = document.getElementById('ee-portion').value.trim();
+  all[idx].calories  = parseInt(document.getElementById('ee-cal').value) || 0;
+  all[idx].proteins  = parseInt(document.getElementById('ee-p').value) || 0;
+  all[idx].fats      = parseInt(document.getElementById('ee-f').value) || 0;
+  all[idx].carbs     = parseInt(document.getElementById('ee-c').value) || 0;
+  all[idx].hunger    = parseInt(document.getElementById('ee-hunger').value) || 0;
+  all[idx].enjoyment = parseInt(document.getElementById('ee-enjoy').value) || 0;
+
+  ls('diary_entries', JSON.stringify(all));
+  closeEditEntry();
+  renderDiary();
+  refreshMain();
+  scheduleCloudSync();
+  toast('✅ Запись обновлена');
+}
+
+function closeEditEntry() {
+  const m = document.getElementById('edit-entry-modal');
+  if (m) m.remove();
 }
 
 function deleteEntry(id) {
