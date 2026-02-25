@@ -3594,13 +3594,79 @@ function renderRatings() {
              rating: avgScore * 0.5 + avgEnjoy * 0.3 + greenPct * 2 };
   });
 
-  // ── Block 1: Best dishes ──
+  // ── Block 1 (TOP): Quality overview (30 days) ──
+  const d30 = new Date(); d30.setDate(d30.getDate() - 30);
+  const last30 = all.filter(e => e.date >= fmtDate(d30));
+  const d7 = new Date(); d7.setDate(d7.getDate() - 7);
+  const last7 = all.filter(e => e.date >= fmtDate(d7));
+  const d14 = new Date(); d14.setDate(d14.getDate() - 14);
+  const prev7 = all.filter(e => e.date >= fmtDate(d14) && e.date < fmtDate(d7));
+
+  const gn30 = last30.filter(e => e.healthColor === 'green').length;
+  const yw30 = last30.filter(e => e.healthColor === 'yellow').length;
+  const rd30 = last30.filter(e => e.healthColor === 'red').length;
+  const total30 = gn30 + yw30 + rd30 || 1;
+  const avgScore30 = last30.length ? (last30.reduce((s, e) => s + (e.healthScore || 5), 0) / last30.length).toFixed(1) : '—';
+
+  const avgThis = last7.length ? last7.reduce((s, e) => s + (e.healthScore || 5), 0) / last7.length : 0;
+  const avgPrev = prev7.length ? prev7.reduce((s, e) => s + (e.healthScore || 5), 0) / prev7.length : 0;
+  let trend = '';
+  if (avgThis && avgPrev) {
+    const diff = avgThis - avgPrev;
+    trend = diff > 0.3 ? '📈 Улучшается!' : diff < -0.3 ? '📉 Снижается' : '➡️ Стабильно';
+  }
+
+  // Selected goals compact badges
+  const selectedBadges = _selectedGoals.length
+    ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Мои цели:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${_selectedGoals.map(k => {
+          const g = HEALTH_GOALS[k];
+          return g ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--primary);color:white;border-radius:20px;font-size:12px;font-weight:600">${g.icon} ${g.label}</span>` : '';
+        }).join('')}</div>
+       </div>` : '';
+
+  const qualityHtml = `<div class="card">
+    <h3 style="font-size:16px;margin-bottom:12px">📊 Качество питания (30 дней)</h3>
+    <div style="height:16px;border-radius:8px;overflow:hidden;display:flex;margin-bottom:10px">
+      <div style="flex:${gn30 || 0.01};background:var(--healthy)"></div>
+      <div style="flex:${yw30 || 0.01};background:var(--moderate)"></div>
+      <div style="flex:${rd30 || 0.01};background:var(--unhealthy)"></div>
+    </div>
+    <div style="display:flex;justify-content:space-around;font-size:12px;margin-bottom:10px">
+      <span style="color:var(--healthy);font-weight:700">🟢 ${Math.round(gn30 / total30 * 100)}%</span>
+      <span style="color:var(--moderate);font-weight:700">🟡 ${Math.round(yw30 / total30 * 100)}%</span>
+      <span style="color:var(--unhealthy);font-weight:700">🔴 ${Math.round(rd30 / total30 * 100)}%</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:13px">Средняя оценка: <b>${avgScore30}</b>/10</div>
+      ${trend ? `<div style="font-size:12px">${trend}</div>` : ''}
+    </div>
+    ${selectedBadges}
+  </div>`;
+
+  // ── Block 2: AI Meal Plan for tomorrow ──
+  const mealPlanHtml = `<div class="card">
+    <h3 style="font-size:16px;margin-bottom:10px">🗓️ Меню на завтра</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">AI составит план питания с учётом целей и планов на день</p>
+    <div class="form-group" style="margin-bottom:10px">
+      <label style="font-size:12px;font-weight:600">Что планируется завтра? (необязательно)</label>
+      <textarea id="meal-plan-context" rows="2" placeholder="Напр: тренировка в 10:00 (1.5 часа), экзамен в 14:00, перелёт вечером..." style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:none"></textarea>
+    </div>
+    <button class="btn btn-primary" style="width:100%;font-size:14px;padding:12px" onclick="generateMealPlan()" id="meal-plan-btn">
+      🤖 Составить меню на завтра
+    </button>
+    <div id="meal-plan-result"></div>
+  </div>`;
+
+  // ── Block 3 (COMBINED): Ratings, goals & recommendations ──
   const best = dishes.filter(d => d.avgScore >= 5 && d.lastColor !== 'red')
     .sort((a, b) => b.rating - a.rating).slice(0, 10);
 
-  let bestHtml = '';
+  let bestSection = '';
   if (best.length) {
-    bestHtml = `<div class="card"><h3 style="font-size:16px;margin-bottom:12px">🏆 Лучшие блюда</h3>` +
+    bestSection = `<div style="margin-bottom:16px">
+      <h4 style="font-size:15px;margin-bottom:10px">🏆 Лучшие блюда</h4>` +
       best.map((d, i) => {
         const stars = '⭐'.repeat(Math.min(Math.round(d.avgScore / 2), 5));
         const colorDot = d.lastColor === 'green' ? '🟢' : d.lastColor === 'yellow' ? '🟡' : '🔴';
@@ -3615,13 +3681,13 @@ function renderRatings() {
       }).join('') + '</div>';
   }
 
-  // ── Block 2: Unhealthy dishes ──
   const bad = dishes.filter(d => d.lastColor === 'red' || d.avgScore < 4)
     .sort((a, b) => b.count - a.count).slice(0, 7);
 
-  let badHtml = '';
+  let badSection = '';
   if (bad.length) {
-    badHtml = `<div class="card"><h3 style="font-size:16px;margin-bottom:12px">⚠️ Стоит есть реже</h3>` +
+    badSection = `<div style="margin-bottom:16px;padding-top:12px;border-top:2px solid var(--border)">
+      <h4 style="font-size:15px;margin-bottom:10px">⚠️ Стоит есть реже</h4>` +
       bad.map(d => {
         const nameLow = d.name.toLowerCase();
         let swap = '';
@@ -3641,73 +3707,26 @@ function renderRatings() {
       }).join('') + '</div>';
   }
 
-  // ── Block 3: Quality overview (30 days) ──
-  const d30 = new Date(); d30.setDate(d30.getDate() - 30);
-  const last30 = all.filter(e => e.date >= fmtDate(d30));
-  const d7 = new Date(); d7.setDate(d7.getDate() - 7);
-  const last7 = all.filter(e => e.date >= fmtDate(d7));
-  const d14 = new Date(); d14.setDate(d14.getDate() - 14);
-  const prev7 = all.filter(e => e.date >= fmtDate(d14) && e.date < fmtDate(d7));
-
-  const gn30 = last30.filter(e => e.healthColor === 'green').length;
-  const yw30 = last30.filter(e => e.healthColor === 'yellow').length;
-  const rd30 = last30.filter(e => e.healthColor === 'red').length;
-  const total30 = gn30 + yw30 + rd30 || 1;
-  const avgScore30 = last30.length ? (last30.reduce((s, e) => s + (e.healthScore || 5), 0) / last30.length).toFixed(1) : '—';
-
-  const avgThis = last7.length ? last7.reduce((s, e) => s + (e.healthScore || 5), 0) / last7.length : 0;
-  const avgPrev = prev7.length ? prev7.reduce((s, e) => s + (e.healthScore || 5), 0) / prev7.length : 0;
-  let trend = '';
-  if (avgThis && avgPrev) {
-    const diff = avgThis - avgPrev;
-    trend = diff > 0.3 ? '📈 Питание улучшается!' : diff < -0.3 ? '📉 Качество питания снизилось' : '➡️ Стабильное качество';
-  }
-
-  const qualityHtml = `<div class="card">
-    <h3 style="font-size:16px;margin-bottom:12px">📊 Качество питания (30 дней)</h3>
-    <div style="height:16px;border-radius:8px;overflow:hidden;display:flex;margin-bottom:10px">
-      <div style="flex:${gn30 || 0.01};background:var(--healthy)"></div>
-      <div style="flex:${yw30 || 0.01};background:var(--moderate)"></div>
-      <div style="flex:${rd30 || 0.01};background:var(--unhealthy)"></div>
-    </div>
-    <div style="display:flex;justify-content:space-around;font-size:12px;margin-bottom:10px">
-      <span style="color:var(--healthy);font-weight:700">🟢 ${Math.round(gn30 / total30 * 100)}%</span>
-      <span style="color:var(--moderate);font-weight:700">🟡 ${Math.round(yw30 / total30 * 100)}%</span>
-      <span style="color:var(--unhealthy);font-weight:700">🔴 ${Math.round(rd30 / total30 * 100)}%</span>
-    </div>
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <div style="font-size:13px">Средняя оценка: <b>${avgScore30}</b>/10</div>
-      ${trend ? `<div style="font-size:12px">${trend}</div>` : ''}
-    </div>
-  </div>`;
-
-  // ── Block 4: Health goals ──
+  // Goal chips + details area inside the combined block
   const goalChips = Object.entries(HEALTH_GOALS).map(([key, g]) =>
     `<button class="activity-chip${_selectedGoals.includes(key) ? ' selected' : ''}" onclick="selectHealthGoal('${key}')" style="font-size:13px;padding:8px 12px">${g.icon} ${g.label}</button>`
   ).join('');
 
-  const goalsHtml = `<div class="card">
-    <h3 style="font-size:16px;margin-bottom:12px">🎯 Цели здоровья</h3>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Выбери цель — получи рекомендации по питанию</p>
+  const goalsSection = `<div style="padding-top:12px;border-top:2px solid var(--border)">
+    <h4 style="font-size:15px;margin-bottom:8px">🎯 Цели здоровья</h4>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Выбери цели — получи персональные рекомендации</p>
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${goalChips}</div>
     <div id="goal-details"></div>
   </div>`;
 
-  // ── Block 5: AI Meal Plan for tomorrow ──
-  const mealPlanHtml = `<div class="card">
-    <h3 style="font-size:16px;margin-bottom:10px">🗓️ Меню на завтра</h3>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">AI составит план питания с учётом целей и планов на день</p>
-    <div class="form-group" style="margin-bottom:10px">
-      <label style="font-size:12px;font-weight:600">Что планируется завтра? (необязательно)</label>
-      <textarea id="meal-plan-context" rows="2" placeholder="Напр: тренировка в 10:00 (1.5 часа), экзамен в 14:00, перелёт вечером..." style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:none"></textarea>
-    </div>
-    <button class="btn btn-primary" style="width:100%;font-size:14px;padding:12px" onclick="generateMealPlan()" id="meal-plan-btn">
-      🤖 Составить меню на завтра
-    </button>
-    <div id="meal-plan-result"></div>
+  const combinedHtml = `<div class="card">
+    <h3 style="font-size:16px;margin-bottom:14px">📋 Рейтинг и рекомендации</h3>
+    ${bestSection}
+    ${badSection}
+    ${goalsSection}
   </div>`;
 
-  cont.innerHTML = qualityHtml + bestHtml + badHtml + goalsHtml + mealPlanHtml;
+  cont.innerHTML = qualityHtml + mealPlanHtml + combinedHtml;
 
   // Restore goal details if selected
   if (_selectedGoals.length) _selectedGoals.forEach(g => showGoalDetails(g));
