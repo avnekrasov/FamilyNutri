@@ -2158,6 +2158,7 @@ async function autoSaveFromConfirm() {
   }
 
   S.lastSavedEntry = entry;
+  scheduleCloudSync();
   showFeedback(entry);
 }
 
@@ -2459,6 +2460,7 @@ function saveActivity() {
   const all = getActivities();
   all.push(entry);
   localStorage.setItem('activity_entries', JSON.stringify(all));
+  scheduleCloudSync();
 
   // Reset selection
   _selActivityType = null;
@@ -2515,6 +2517,7 @@ function deleteActivity(id) {
   const all = getActivities().filter(a => a.id !== id);
   localStorage.setItem('activity_entries', JSON.stringify(all));
   refreshMain();
+  scheduleCloudSync();
   toast('Активность удалена');
 }
 
@@ -2547,6 +2550,7 @@ function saveWeight(dateOverride) {
   S.dailyNorms = calcDailyNorms();
 
   toast('⚖️ Вес записан: ' + val + ' кг' + (dateOverride ? ' за ' + dateOverride : ''));
+  scheduleCloudSync();
   refreshMain();
 }
 
@@ -2851,6 +2855,7 @@ async function saveEntry() {
   }
 
   S.lastSavedEntry = entry;
+  scheduleCloudSync();
   showFeedback(entry);
 }
 
@@ -3062,6 +3067,7 @@ function deleteEntry(id) {
   ls('diary_entries', JSON.stringify(getEntries().filter(e => e.id !== id)));
   renderDiary();
   refreshMain();
+  scheduleCloudSync();
   toast('Запись удалена');
 }
 
@@ -3517,9 +3523,16 @@ function initFirebase() {
     _fbAuth = firebase.auth();
     _fbDb = firebase.firestore();
     // Listen for auth state changes
-    _fbAuth.onAuthStateChanged(user => {
+    _fbAuth.onAuthStateChanged(async user => {
+      const wasNull = !_fbUser;
       _fbUser = user;
       updateAuthUI();
+      // Auto-load from cloud on first sign-in (new session)
+      if (user && wasNull && _fbDb) {
+        try {
+          await cloudLoadBackup(true); // silent mode
+        } catch(e) { console.warn('Auto-load failed:', e); }
+      }
     });
     return true;
   } catch(e) {
@@ -3690,8 +3703,8 @@ function buildBackupData() {
   };
 }
 
-async function cloudSaveBackup() {
-  if (!_fbUser || !_fbDb) { toast('Сначала войдите в аккаунт'); return; }
+async function cloudSaveBackup(silent) {
+  if (!_fbUser || !_fbDb) { if (!silent) toast('Сначала войдите в аккаунт'); return; }
   try {
     const data = buildBackupData();
     // Remove thumbnails to save space (Firestore 1MB doc limit)
@@ -3703,21 +3716,30 @@ async function cloudSaveBackup() {
     }
     await _fbDb.collection('users').doc(_fbUser.uid).set(data);
     console.log('✅ Backup saved for UID:', _fbUser.uid);
-    $('auth-user-sync').textContent = 'Сохранено ' + new Date().toLocaleTimeString() + ' ✅  (ID: ' + _fbUser.uid.slice(0,8) + '…)';
-    toast('☁️ Данные сохранены в облако!');
+    const syncEl = $('auth-user-sync');
+    if (syncEl) syncEl.textContent = 'Сохранено ' + new Date().toLocaleTimeString() + ' ✅  (ID: ' + _fbUser.uid.slice(0,8) + '…)';
+    if (!silent) toast('☁️ Данные сохранены в облако!');
   } catch(err) {
     const msg = err.message || '';
     if (msg.includes('permission') || msg.includes('PERMISSION_DENIED')) {
-      toast('❌ Нет прав. Нужно настроить Firestore Rules в Firebase Console (см. ниже)', 6000);
+      if (!silent) toast('❌ Нет прав. Нужно настроить Firestore Rules в Firebase Console (см. ниже)', 6000);
       showFirestoreRulesHelp();
-    } else {
+    } else if (!silent) {
       toast('❌ Ошибка: ' + msg.slice(0, 60));
     }
   }
 }
 
-async function cloudLoadBackup() {
-  if (!_fbUser || !_fbDb) { toast('Сначала войдите в аккаунт'); return; }
+// Auto-sync: save to cloud after data changes (debounced)
+let _cloudSyncTimer = null;
+function scheduleCloudSync() {
+  if (!_fbUser || !_fbDb) return;
+  clearTimeout(_cloudSyncTimer);
+  _cloudSyncTimer = setTimeout(() => cloudSaveBackup(true), 3000);
+}
+
+async function cloudLoadBackup(silent) {
+  if (!_fbUser || !_fbDb) { if (!silent) toast('Сначала войдите в аккаунт'); return; }
   const uid = _fbUser.uid;
   let permissionError = false;
   try {
@@ -3746,7 +3768,7 @@ async function cloudLoadBackup() {
       if (permissionError) {
         toast('❌ Нет прав на чтение данных. Настрой Firestore Rules в Firebase Console.', 6000);
         showFirestoreRulesHelp();
-      } else {
+      } else if (!silent) {
         toast('Бэкап не найден (ID: ' + uid.slice(0,8) + '…). Убедись что email совпадает на обоих устройствах и что данные были сохранены.', 6000);
       }
       return;
@@ -3759,7 +3781,7 @@ async function cloudLoadBackup() {
     if (msg.includes('permission') || msg.includes('PERMISSION_DENIED')) {
       toast('❌ Нет прав. Нужно настроить Firestore Rules в Firebase Console', 6000);
       showFirestoreRulesHelp();
-    } else {
+    } else if (!silent) {
       toast('❌ Ошибка: ' + msg.slice(0, 60));
     }
   }
