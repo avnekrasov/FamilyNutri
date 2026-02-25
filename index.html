@@ -707,6 +707,18 @@ body {
       <div class="ai-box" id="confirm-ai-comment"></div>
     </div>
 
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Приём пищи</label>
+      <select id="confirm-meal-type" style="width:100%;padding:12px;border:2px solid var(--border);border-radius:12px;font-size:15px;font-family:inherit;background:var(--card);color:var(--text)">
+        <option value="breakfast">🌅 Завтрак</option>
+        <option value="second_breakfast">☀️ Второй завтрак</option>
+        <option value="lunch">🌞 Обед</option>
+        <option value="snack">🍎 Полдник</option>
+        <option value="dinner">🌙 Ужин</option>
+        <option value="extra">🍬 Перекус</option>
+      </select>
+    </div>
+
     <div class="confirm-actions">
       <button class="btn btn-primary" style="font-size:17px;padding:18px" onclick="confirmYes()">✅ Да, сохранить!</button>
       <button class="btn btn-ghost" onclick="confirmEdit()">✏️ Исправить вручную</button>
@@ -1925,14 +1937,14 @@ function fillResultScreen(r, imgData) {
   $('edit-c').value       = r.carbs     || '';
   $('edit-comment').value = '';
 
-  // Auto-detect meal type by time
-  const h = new Date().getHours();
-  $('edit-meal-type').value =
-    h < 10 ? 'breakfast' :
-    h < 12 ? 'second_breakfast' :
-    h < 15 ? 'lunch' :
-    h < 17 ? 'snack' :
-    h < 21 ? 'dinner' : 'extra';
+  // Meal type: use confirm-meal-type if set, else auto-detect
+  const confirmMeal = $('confirm-meal-type');
+  if (confirmMeal && confirmMeal.value) {
+    $('edit-meal-type').value = confirmMeal.value;
+  } else {
+    const isOtherDate = _foodOverrideDate && _foodOverrideDate !== fmtDate(new Date());
+    $('edit-meal-type').value = isOtherDate ? 'lunch' : autoDetectMealType();
+  }
 }
 
 function speakResult() {
@@ -1980,6 +1992,22 @@ function fillConfirmScreen(r, imgData) {
   $('confirm-comment').value = '';
   if ($('confirm-describe')) $('confirm-describe').value = '';
   $('confirm-listening').classList.add('hidden');
+
+  // Pre-select meal type: auto-detect for today, or prompt for other dates
+  const mealSel = $('confirm-meal-type');
+  if (mealSel) {
+    const isOtherDate = _foodOverrideDate && _foodOverrideDate !== fmtDate(new Date());
+    if (isOtherDate) {
+      // For past dates — default to lunch (most common), user should pick
+      mealSel.value = 'lunch';
+      mealSel.style.borderColor = 'var(--primary)';
+      mealSel.style.boxShadow = '0 0 0 3px rgba(255,111,97,0.2)';
+    } else {
+      mealSel.value = autoDetectMealType();
+      mealSel.style.borderColor = 'var(--border)';
+      mealSel.style.boxShadow = 'none';
+    }
+  }
 }
 
 function speakConfirm() {
@@ -2133,7 +2161,7 @@ async function autoSaveFromConfirm() {
     id:          Date.now(),
     date:        entryDate,
     time:        fmtTime(now),
-    mealType:    autoDetectMealType(),
+    mealType:    ($('confirm-meal-type') ? $('confirm-meal-type').value : autoDetectMealType()),
     dishName:    r.dish_name || 'Блюдо',
     calories:    parseInt(r.calories) || 0,
     proteins:    parseInt(r.proteins) || 0,
