@@ -71,11 +71,11 @@ body {
   box-shadow: 0 -2px 12px rgba(0,0,0,0.05);
 }
 .nav-item {
-  flex: 1; display:flex; flex-direction:column; align-items:center; gap:3px;
-  padding: 6px 4px; cursor:pointer; border:none; background:none;
-  color: var(--text-muted); transition: color 0.2s; font-size: 22px;
+  flex: 1; display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding: 5px 2px; cursor:pointer; border:none; background:none;
+  color: var(--text-muted); transition: color 0.2s; font-size: 20px;
 }
-.nav-item span { font-size: 10px; font-weight: 600; letter-spacing: 0.3px; }
+.nav-item span { font-size: 9px; font-weight: 600; letter-spacing: 0.2px; }
 .nav-item.active { color: var(--primary); }
 
 /* ── CARDS ── */
@@ -642,6 +642,7 @@ body {
     <button class="nav-item active" onclick="nav('main')">🏠<span>Главная</span></button>
     <button class="nav-item" onclick="nav('diary')">📖<span>Дневник</span></button>
     <button class="nav-item" onclick="nav('stats')">📊<span>Итоги</span></button>
+    <button class="nav-item" onclick="nav('ratings')">⭐<span>Советы</span></button>
     <button class="nav-item" onclick="nav('settings')">⚙️<span>Настройки</span></button>
   </nav>
 </div>
@@ -1070,6 +1071,7 @@ body {
     <button class="nav-item" onclick="nav('main')">🏠<span>Главная</span></button>
     <button class="nav-item active" onclick="nav('diary')">📖<span>Дневник</span></button>
     <button class="nav-item" onclick="nav('stats')">📊<span>Итоги</span></button>
+    <button class="nav-item" onclick="nav('ratings')">⭐<span>Советы</span></button>
     <button class="nav-item" onclick="nav('settings')">⚙️<span>Настройки</span></button>
   </nav>
 </div>
@@ -1089,6 +1091,7 @@ body {
     <button class="nav-item" onclick="nav('main')">🏠<span>Главная</span></button>
     <button class="nav-item" onclick="nav('diary')">📖<span>Дневник</span></button>
     <button class="nav-item active" onclick="nav('stats')">📊<span>Итоги</span></button>
+    <button class="nav-item" onclick="nav('ratings')">⭐<span>Советы</span></button>
     <button class="nav-item" onclick="nav('settings')">⚙️<span>Настройки</span></button>
   </nav>
 </div>
@@ -1231,7 +1234,32 @@ body {
     <button class="nav-item" onclick="nav('main')">🏠<span>Главная</span></button>
     <button class="nav-item" onclick="nav('diary')">📖<span>Дневник</span></button>
     <button class="nav-item" onclick="nav('stats')">📊<span>Итоги</span></button>
+    <button class="nav-item" onclick="nav('ratings')">⭐<span>Советы</span></button>
     <button class="nav-item active" onclick="nav('settings')">⚙️<span>Настройки</span></button>
+  </nav>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SCREEN: RATINGS & RECOMMENDATIONS
+══════════════════════════════════════════ -->
+<div id="screen-ratings" class="screen">
+  <div class="header" style="background:linear-gradient(135deg,#F39C12,#E67E22)">
+    <h1 style="font-size:20px">⭐ Рейтинг и советы</h1>
+    <div class="subtitle">Персональные рекомендации по питанию</div>
+  </div>
+
+  <div class="content padded-bottom" id="ratings-content">
+    <div style="text-align:center;padding:40px 20px;color:var(--text-muted)">
+      ⏳ Загрузка рекомендаций...
+    </div>
+  </div>
+
+  <nav class="nav-bar">
+    <button class="nav-item" onclick="nav('main')">🏠<span>Главная</span></button>
+    <button class="nav-item" onclick="nav('diary')">📖<span>Дневник</span></button>
+    <button class="nav-item" onclick="nav('stats')">📊<span>Итоги</span></button>
+    <button class="nav-item active" onclick="nav('ratings')">⭐<span>Советы</span></button>
+    <button class="nav-item" onclick="nav('settings')">⚙️<span>Настройки</span></button>
   </nav>
 </div>
 
@@ -1318,6 +1346,7 @@ function nav(id) {
   if (id === 'main')     refreshMain();
   if (id === 'diary')  { S.diaryDate = new Date(); renderDiary(); }
   if (id === 'stats')    renderStats();
+  if (id === 'ratings')  renderRatings();
   if (id === 'activity') {
     // Reset activity screen state
     _selActivityType = null;
@@ -3427,6 +3456,322 @@ function renderStats() {
           '</div>';
       })()}
     </div>`;
+}
+
+// ──────────────────────────────────────────
+// RATINGS & RECOMMENDATIONS
+// ──────────────────────────────────────────
+
+const HEALTH_GOALS = {
+  salt:   { icon: '🧂', label: 'Снижение соли',
+            good: ['овощи на пару', 'каши без соли', 'фрукты', 'нежирное мясо', 'рис'],
+            bad: ['колбаса', 'чипсы', 'консервы', 'фастфуд', 'соления'],
+            tip: 'Заменяй соль на лимонный сок, травы, чеснок' },
+  iron:   { icon: '🩸', label: 'Повышение железа',
+            good: ['говядина', 'печень', 'гречка', 'шпинат', 'чечевица', 'яблоки'],
+            bad: ['чай с едой', 'молоко с мясом'],
+            tip: 'Ешь продукты с витамином C вместе с железосодержащими' },
+  sleep:  { icon: '😴', label: 'Улучшение сна',
+            good: ['бананы', 'молоко', 'индейка', 'миндаль', 'вишня', 'ромашковый чай'],
+            bad: ['кофе после 14:00', 'энергетики', 'сладкое на ночь'],
+            tip: 'Ужинай за 2-3 часа до сна, выбирай продукты с триптофаном' },
+  focus:  { icon: '🧠', label: 'Внимание и мозг',
+            good: ['рыба', 'орехи', 'черника', 'авокадо', 'яйца', 'тёмный шоколад'],
+            bad: ['фастфуд', 'сладкая газировка', 'чипсы'],
+            tip: 'Омега-3 жирные кислоты улучшают работу мозга' },
+  vision: { icon: '👁️', label: 'Зрение',
+            good: ['морковь', 'черника', 'шпинат', 'яйца', 'рыба', 'перец болгарский'],
+            bad: ['сахар в больших количествах', 'алкоголь'],
+            tip: 'Витамин A и лютеин — главные защитники зрения' },
+  muscle: { icon: '💪', label: 'Набор мышц',
+            good: ['куриная грудка', 'яйца', 'творог', 'рыба', 'бобовые', 'гречка'],
+            bad: ['алкоголь', 'сахар', 'пустые калории'],
+            tip: 'Белок 1.6-2.2г на кг массы тела, ешь в течение 2 часов после тренировки' },
+  weight: { icon: '🏃', label: 'Снижение веса',
+            good: ['овощи', 'нежирный белок', 'цельнозерновые', 'вода', 'зелёный чай'],
+            bad: ['сладкое', 'мучное', 'газировка', 'жареное', 'алкоголь'],
+            tip: 'Дефицит 300-500 ккал/день + белок для сохранения мышц' },
+  heart:  { icon: '❤️', label: 'Здоровье сердца',
+            good: ['рыба', 'оливковое масло', 'орехи', 'овощи', 'цельнозерновые', 'ягоды'],
+            bad: ['трансжиры', 'колбаса', 'солёное', 'фастфуд'],
+            tip: 'Омега-3, клетчатка и калий — лучшие друзья сердца' },
+};
+
+const UNHEALTHY_SWAPS = {
+  'фастфуд': 'домашний бургер с салатом',
+  'газировка': 'вода с лимоном или компот',
+  'чипсы': 'орехи или овощные палочки',
+  'колбаса': 'куриная грудка или индейка',
+  'сосиски': 'домашние куриные котлеты',
+  'торт': 'фрукты или тёмный шоколад',
+  'конфеты': 'сухофрукты или мёд',
+  'пицца': 'домашняя пицца на цельнозерновом тесте',
+  'шоколад': 'тёмный шоколад 70%+ или банан',
+  'майонез': 'греческий йогурт или сметана 15%',
+  'жареное': 'запечённое или на пару',
+  'белый хлеб': 'цельнозерновой хлеб',
+  'сахар': 'мёд или стевия',
+  'картошка фри': 'запечённый картофель',
+  'кола': 'минеральная вода с лимоном',
+};
+
+let _selectedGoal = null;
+
+function renderRatings() {
+  const cont = $('ratings-content');
+  const all = getEntries();
+
+  if (all.length < 3) {
+    cont.innerHTML = `
+      <div class="empty-state" style="padding:40px 20px">
+        <span class="e-emoji">📊</span>
+        <h3>Мало данных</h3>
+        <p>Добавь хотя бы 3 приёма пищи, чтобы получить рекомендации</p>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="nav('main')">🏠 На главную</button>
+      </div>`;
+    return;
+  }
+
+  // ── Aggregate dishes ──
+  const dishMap = {};
+  all.forEach(e => {
+    const key = (e.dishName || '').toLowerCase().trim();
+    if (!key) return;
+    if (!dishMap[key]) dishMap[key] = { name: e.dishName, count: 0, scores: [], enjoyments: [], colors: [], totalCal: 0 };
+    dishMap[key].count++;
+    if (e.healthScore) dishMap[key].scores.push(e.healthScore);
+    if (e.enjoyment)   dishMap[key].enjoyments.push(e.enjoyment);
+    dishMap[key].colors.push(e.healthColor || 'yellow');
+    dishMap[key].totalCal += (e.calories || 0);
+  });
+
+  const dishes = Object.values(dishMap).map(d => {
+    const avgScore = d.scores.length ? d.scores.reduce((a, b) => a + b, 0) / d.scores.length : 5;
+    const avgEnjoy = d.enjoyments.length ? d.enjoyments.reduce((a, b) => a + b, 0) / d.enjoyments.length : 3;
+    const lastColor = d.colors[d.colors.length - 1];
+    const greenPct = d.colors.filter(c => c === 'green').length / d.colors.length;
+    return { ...d, avgScore, avgEnjoy, lastColor, greenPct,
+             rating: avgScore * 0.5 + avgEnjoy * 0.3 + greenPct * 2 };
+  });
+
+  // ── Block 1: Best dishes ──
+  const best = dishes.filter(d => d.avgScore >= 5 && d.lastColor !== 'red')
+    .sort((a, b) => b.rating - a.rating).slice(0, 10);
+
+  let bestHtml = '';
+  if (best.length) {
+    bestHtml = `<div class="card"><h3 style="font-size:16px;margin-bottom:12px">🏆 Лучшие блюда</h3>` +
+      best.map((d, i) => {
+        const stars = '⭐'.repeat(Math.min(Math.round(d.avgScore / 2), 5));
+        const colorDot = d.lastColor === 'green' ? '🟢' : d.lastColor === 'yellow' ? '🟡' : '🔴';
+        return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;${i < best.length - 1 ? 'border-bottom:1px solid var(--border)' : ''}">
+          <div style="width:24px;text-align:center;font-weight:800;color:var(--primary);font-size:14px">${i + 1}</div>
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:14px">${colorDot} ${esc(d.name)}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${stars} · ${d.count}× · ~${Math.round(d.totalCal / d.count)} ккал</div>
+          </div>
+          ${d.avgEnjoy >= 3 ? '<div style="font-size:16px">😋</div>' : ''}
+        </div>`;
+      }).join('') + '</div>';
+  }
+
+  // ── Block 2: Unhealthy dishes ──
+  const bad = dishes.filter(d => d.lastColor === 'red' || d.avgScore < 4)
+    .sort((a, b) => b.count - a.count).slice(0, 7);
+
+  let badHtml = '';
+  if (bad.length) {
+    badHtml = `<div class="card"><h3 style="font-size:16px;margin-bottom:12px">⚠️ Стоит есть реже</h3>` +
+      bad.map(d => {
+        const nameLow = d.name.toLowerCase();
+        let swap = '';
+        for (const [key, val] of Object.entries(UNHEALTHY_SWAPS)) {
+          if (nameLow.includes(key)) { swap = val; break; }
+        }
+        return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="font-size:14px">🔴</div>
+            <div style="flex:1">
+              <div style="font-weight:700;font-size:14px">${esc(d.name)}</div>
+              <div style="font-size:11px;color:var(--text-muted)">${d.count}× в дневнике · оценка ${d.avgScore.toFixed(1)}/10</div>
+            </div>
+          </div>
+          ${swap ? `<div style="margin-top:4px;padding:6px 10px;background:#FFF3CD;border-radius:8px;font-size:12px">💡 Попробуй заменить на: <b>${swap}</b></div>` : ''}
+        </div>`;
+      }).join('') + '</div>';
+  }
+
+  // ── Block 3: Quality overview (30 days) ──
+  const d30 = new Date(); d30.setDate(d30.getDate() - 30);
+  const last30 = all.filter(e => e.date >= fmtDate(d30));
+  const d7 = new Date(); d7.setDate(d7.getDate() - 7);
+  const last7 = all.filter(e => e.date >= fmtDate(d7));
+  const d14 = new Date(); d14.setDate(d14.getDate() - 14);
+  const prev7 = all.filter(e => e.date >= fmtDate(d14) && e.date < fmtDate(d7));
+
+  const gn30 = last30.filter(e => e.healthColor === 'green').length;
+  const yw30 = last30.filter(e => e.healthColor === 'yellow').length;
+  const rd30 = last30.filter(e => e.healthColor === 'red').length;
+  const total30 = gn30 + yw30 + rd30 || 1;
+  const avgScore30 = last30.length ? (last30.reduce((s, e) => s + (e.healthScore || 5), 0) / last30.length).toFixed(1) : '—';
+
+  const avgThis = last7.length ? last7.reduce((s, e) => s + (e.healthScore || 5), 0) / last7.length : 0;
+  const avgPrev = prev7.length ? prev7.reduce((s, e) => s + (e.healthScore || 5), 0) / prev7.length : 0;
+  let trend = '';
+  if (avgThis && avgPrev) {
+    const diff = avgThis - avgPrev;
+    trend = diff > 0.3 ? '📈 Питание улучшается!' : diff < -0.3 ? '📉 Качество питания снизилось' : '➡️ Стабильное качество';
+  }
+
+  const qualityHtml = `<div class="card">
+    <h3 style="font-size:16px;margin-bottom:12px">📊 Качество питания (30 дней)</h3>
+    <div style="height:16px;border-radius:8px;overflow:hidden;display:flex;margin-bottom:10px">
+      <div style="flex:${gn30 || 0.01};background:var(--healthy)"></div>
+      <div style="flex:${yw30 || 0.01};background:var(--moderate)"></div>
+      <div style="flex:${rd30 || 0.01};background:var(--unhealthy)"></div>
+    </div>
+    <div style="display:flex;justify-content:space-around;font-size:12px;margin-bottom:10px">
+      <span style="color:var(--healthy);font-weight:700">🟢 ${Math.round(gn30 / total30 * 100)}%</span>
+      <span style="color:var(--moderate);font-weight:700">🟡 ${Math.round(yw30 / total30 * 100)}%</span>
+      <span style="color:var(--unhealthy);font-weight:700">🔴 ${Math.round(rd30 / total30 * 100)}%</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:13px">Средняя оценка: <b>${avgScore30}</b>/10</div>
+      ${trend ? `<div style="font-size:12px">${trend}</div>` : ''}
+    </div>
+  </div>`;
+
+  // ── Block 4: Health goals ──
+  const goalChips = Object.entries(HEALTH_GOALS).map(([key, g]) =>
+    `<button class="activity-chip${_selectedGoal === key ? ' selected' : ''}" onclick="selectHealthGoal('${key}')" style="font-size:13px;padding:8px 12px">${g.icon} ${g.label}</button>`
+  ).join('');
+
+  const goalsHtml = `<div class="card">
+    <h3 style="font-size:16px;margin-bottom:12px">🎯 Цели здоровья</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Выбери цель — получи рекомендации по питанию</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${goalChips}</div>
+    <div id="goal-details"></div>
+  </div>`;
+
+  cont.innerHTML = qualityHtml + bestHtml + badHtml + goalsHtml;
+
+  // Restore goal details if selected
+  if (_selectedGoal) showGoalDetails(_selectedGoal);
+}
+
+function selectHealthGoal(key) {
+  _selectedGoal = _selectedGoal === key ? null : key;
+  renderRatings();
+}
+
+function showGoalDetails(key) {
+  const g = HEALTH_GOALS[key];
+  if (!g) return;
+  const det = $('goal-details');
+  if (!det) return;
+
+  const goodList = g.good.map(p => `<span style="display:inline-block;padding:4px 10px;background:#D5F5E3;border-radius:12px;font-size:12px;margin:3px">✅ ${p}</span>`).join('');
+  const badList = g.bad.map(p => `<span style="display:inline-block;padding:4px 10px;background:#FDEDEC;border-radius:12px;font-size:12px;margin:3px">❌ ${p}</span>`).join('');
+
+  // Check cache for AI recommendations
+  const cacheKey = 'ratings_cache_' + key;
+  const cached = localStorage.getItem(cacheKey);
+  let cachedData = null;
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed.ts && Date.now() - parsed.ts < 24 * 3600000) cachedData = parsed.data;
+    } catch {}
+  }
+
+  det.innerHTML = `
+    <div style="background:var(--bg);border-radius:14px;padding:14px;margin-top:8px">
+      <div style="font-weight:700;font-size:15px;margin-bottom:10px">${g.icon} ${g.label}</div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--healthy)">Рекомендуемые продукты:</div>
+        <div>${goodList}</div>
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--unhealthy)">Ограничить:</div>
+        <div>${badList}</div>
+      </div>
+      <div style="padding:8px 12px;background:#E8F8F5;border-radius:10px;font-size:13px;margin-bottom:10px">
+        💡 ${g.tip}
+      </div>
+      <div id="ai-goal-result">${cachedData ? formatAIGoalResult(cachedData) : ''}</div>
+      <button class="btn btn-secondary" style="width:100%;font-size:13px;padding:12px" onclick="requestAIGoalAdvice('${key}')" id="ai-goal-btn">
+        🤖 ${cachedData ? 'Обновить рекомендации AI' : 'Подробные рекомендации от AI'}
+      </button>
+    </div>`;
+}
+
+async function requestAIGoalAdvice(key) {
+  const g = HEALTH_GOALS[key];
+  if (!g || !S.apiKey) { toast(S.apiKey ? 'Ошибка' : 'Нужен API ключ Gemini в настройках'); return; }
+
+  const btn = $('ai-goal-btn');
+  if (btn) { btn.textContent = '⏳ Анализирую...'; btn.disabled = true; }
+
+  try {
+    const entries = getEntries();
+    const d7 = new Date(); d7.setDate(d7.getDate() - 7);
+    const recent = entries.filter(e => e.date >= fmtDate(d7));
+    const meals = [...new Set(recent.map(e => e.dishName))].slice(0, 20).join(', ') || 'нет данных';
+    const age = calcAge(S.birthDate);
+
+    const prompt = `Ты диетолог-помощник. Пользователь выбрал цель здоровья: "${g.label}".
+За последние 7 дней ел: ${meals}.
+Профиль: возраст ${age} лет, пол ${S.gender === 'male' ? 'мужской' : 'женский'}, вес ${S.weightKg || '?'} кг.
+
+Проанализируй рацион и дай рекомендации для цели "${g.label}".
+Ответь ТОЛЬКО JSON (без markdown):
+{
+  "good": [{"name": "блюдо из рациона", "why": "почему помогает цели"}],
+  "bad": [{"name": "блюдо из рациона", "replace": "чем заменить", "why": "почему мешает"}],
+  "recipes": [{"name": "новое блюдо", "ingredients": "основные ингредиенты", "benefit": "польза для цели"}]
+}
+
+Включи 2-4 элемента в каждый массив. Если блюд нет в рационе — предложи новые. Пиши на русском, кратко и дружелюбно.`;
+
+    const text = await geminiRequest(prompt);
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON');
+    const data = JSON.parse(match[0]);
+
+    // Cache for 24h
+    localStorage.setItem('ratings_cache_' + key, JSON.stringify({ ts: Date.now(), data }));
+
+    const res = $('ai-goal-result');
+    if (res) res.innerHTML = formatAIGoalResult(data);
+  } catch(err) {
+    toast('Ошибка AI: ' + (err.message || '').slice(0, 50));
+  } finally {
+    if (btn) { btn.textContent = '🤖 Обновить рекомендации AI'; btn.disabled = false; }
+  }
+}
+
+function formatAIGoalResult(data) {
+  let html = '';
+  if (data.good && data.good.length) {
+    html += `<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:700;color:var(--healthy);margin-bottom:6px">✅ Что из рациона помогает:</div>`;
+    html += data.good.map(g => `<div style="padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)"><b>${esc(g.name)}</b> — ${esc(g.why)}</div>`).join('');
+    html += '</div>';
+  }
+  if (data.bad && data.bad.length) {
+    html += `<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:700;color:var(--unhealthy);margin-bottom:6px">🔄 Что стоит заменить:</div>`;
+    html += data.bad.map(b => `<div style="padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)"><b>${esc(b.name)}</b> → <span style="color:var(--healthy)">${esc(b.replace)}</span><br><span style="font-size:11px;color:var(--text-muted)">${esc(b.why)}</span></div>`).join('');
+    html += '</div>';
+  }
+  if (data.recipes && data.recipes.length) {
+    html += `<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:6px">🍳 Рекомендуемые блюда:</div>`;
+    html += data.recipes.map(r => `<div style="padding:8px;margin-bottom:6px;background:white;border-radius:10px;border:1px solid var(--border)">
+      <div style="font-weight:700;font-size:14px">${esc(r.name)}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">🥘 ${esc(r.ingredients)}</div>
+      <div style="font-size:12px;color:var(--healthy);margin-top:2px">💚 ${esc(r.benefit)}</div>
+    </div>`).join('');
+    html += '</div>';
+  }
+  return html;
 }
 
 // ──────────────────────────────────────────
