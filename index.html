@@ -917,6 +917,7 @@ body {
       <div style="font-size:18px;font-weight:800;margin:8px 0" id="activity-preview-name">Бег</div>
       <div style="font-size:28px;font-weight:800;color:var(--secondary)" id="activity-preview-cal">0 ккал</div>
       <div style="font-size:13px;color:var(--text-muted)">будет сожжено</div>
+      <div id="activity-preview-extras"></div>
     </div>
 
     <div class="card">
@@ -1483,19 +1484,25 @@ function refreshMain() {
          Активности сегодня
          <span style="font-size:13px;color:var(--secondary);font-weight:700">🔥 −${actOnly} ккал</span>
        </div>` +
-      acts.map(a => `
+      acts.map(a => {
+        const extras = [];
+        if (a.distance_km) extras.push(`📏 ${a.distance_km} км`);
+        if (a.avg_hr) extras.push(`💓 ${a.avg_hr}`);
+        if (a.steps) extras.push(`👣 ${a.steps}`);
+        return `
         <div class="meal-entry" style="border-left-color:var(--secondary)">
           <div class="meal-thumb">${a.label.split(' ')[0]}</div>
           <div class="meal-info">
             <div class="meal-name">${esc(a.label.replace(/^[^\s]+\s*/, ''))}</div>
-            <div class="meal-time">${a.time} · ${a.duration} мин</div>
+            <div class="meal-time">${a.time} · ${a.duration} мин${extras.length ? ' · ' + extras.join(' · ') : ''}</div>
           </div>
           <div class="meal-right">
             <div class="meal-calories" style="color:var(--secondary)">−${a.calBurned}</div>
             <div class="meal-cal-label">ккал</div>
             <button class="delete-btn" onclick="deleteActivity(${a.id})">🗑</button>
           </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
   } else {
     actPreview.innerHTML = '';
   }
@@ -2411,6 +2418,7 @@ let _selActivityType = null;
 let _selDurationMin  = null;
 let _activityPhoto   = null;
 let _activityOverrideDate = null;
+let _aiActivityData  = null; // AI-recognized data from fitness screenshot
 
 async function onActivityPhotoSelected(ev) {
   const file = ev.target.files[0];
@@ -2435,8 +2443,21 @@ async function onActivityPhotoSelected(ev) {
 async function analyzeActivityScreenshot(imageBase64) {
   try {
     const p = `Это скриншот из фитнес-приложения или трекера активности.
-Распознай: тип активности, длительность в минутах, потраченные калории.
-Ответь ТОЛЬКО JSON: {"activity_type":"тип активности","duration_min":число,"calories_burned":число,"description":"краткое описание"}
+Распознай ВСЕ данные с экрана: тип активности, длительность, калории, расстояние, пульс, шаги, темп и другие показатели.
+Ответь ТОЛЬКО JSON (без markdown):
+{
+  "activity_type": "тип активности",
+  "duration_min": число_минут,
+  "calories_burned": число_ккал,
+  "distance_km": число_км_или_0,
+  "avg_hr": средний_пульс_или_0,
+  "max_hr": макс_пульс_или_0,
+  "steps": число_шагов_или_0,
+  "avg_pace": "мин/км или пусто",
+  "description": "краткое описание тренировки"
+}
+Важно: бери калории, расстояние, пульс и другие данные ТОЧНО с экрана, не вычисляй сам.
+Если значение не видно на экране — ставь 0 или пустую строку.
 Если не можешь определить — верни {"activity_type":"other","duration_min":30,"calories_burned":0,"description":"не удалось распознать"}`;
     const raw = await geminiRequest(p, imageBase64);
     const result = parseAIJson(raw);
@@ -2490,11 +2511,29 @@ async function analyzeActivityScreenshot(imageBase64) {
       }
     }
 
-    // If Gemini gave calories — show them (override calculated)
-    if (result.calories_burned > 0) {
+    // Store AI-recognized data for use in save
+    _aiActivityData = {
+      calories: result.calories_burned > 0 ? Math.round(result.calories_burned) : 0,
+      distance_km: parseFloat(result.distance_km) || 0,
+      avg_hr: parseInt(result.avg_hr) || 0,
+      max_hr: parseInt(result.max_hr) || 0,
+      steps: parseInt(result.steps) || 0,
+      avg_pace: result.avg_pace || '',
+      description: result.description || '',
+    };
+
+    if (_aiActivityData.calories > 0) {
       updateActivityPreview();
-      // Override preview cal with Gemini's value
-      $('activity-preview-cal').textContent = result.calories_burned + ' ккал';
+      // Build extra metrics line
+      const extras = [];
+      if (_aiActivityData.distance_km) extras.push(`📏 ${_aiActivityData.distance_km} км`);
+      if (_aiActivityData.avg_hr) extras.push(`💓 ${_aiActivityData.avg_hr} уд/мин`);
+      if (_aiActivityData.steps) extras.push(`👣 ${_aiActivityData.steps} шагов`);
+      if (_aiActivityData.avg_pace) extras.push(`⏱️ ${_aiActivityData.avg_pace}`);
+      // Override preview with AI values
+      $('activity-preview-cal').textContent = _aiActivityData.calories + ' ккал';
+      const extrasEl = $('activity-preview-extras');
+      if (extrasEl) extrasEl.innerHTML = extras.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:6px">${extras.join(' · ')}</div>` : '';
       $('activity-preview').style.display = 'block';
       $('activity-save-btn').style.display = 'block';
       toast('✅ Распознано: ' + (result.description || result.activity_type));
@@ -2561,13 +2600,26 @@ function updateActivityPreview() {
   }
   const w = S.weightKg || 65;
   const hours = _selDurationMin / 60;
-  const burned = Math.round(_selActivityType.cal * w * hours);
+  const calcBurned = Math.round(_selActivityType.cal * w * hours);
+  // Use AI-recognized calories if available, otherwise use formula
+  const burned = (_aiActivityData && _aiActivityData.calories > 0) ? _aiActivityData.calories : calcBurned;
   const emoji = _selActivityType.label.split(' ')[0];
   const name  = _selActivityType.label.replace(/^[^\s]+\s*/, '');
 
   $('activity-preview-emoji').textContent = emoji;
   $('activity-preview-name').textContent  = name + ' · ' + _selDurationMin + ' мин';
   $('activity-preview-cal').textContent   = burned + ' ккал';
+
+  // Show AI extras if available
+  const extrasEl = $('activity-preview-extras');
+  if (extrasEl && _aiActivityData) {
+    const extras = [];
+    if (_aiActivityData.distance_km) extras.push(`📏 ${_aiActivityData.distance_km} км`);
+    if (_aiActivityData.avg_hr) extras.push(`💓 ${_aiActivityData.avg_hr} уд/мин`);
+    if (_aiActivityData.steps) extras.push(`👣 ${_aiActivityData.steps} шагов`);
+    if (_aiActivityData.avg_pace) extras.push(`⏱️ ${_aiActivityData.avg_pace}`);
+    extrasEl.innerHTML = extras.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:6px">${extras.join(' · ')}</div>` : '';
+  }
 
   prev.style.display = 'block';
   saveBtn.style.display = 'block';
@@ -2578,7 +2630,9 @@ function saveActivity() {
 
   const w = S.weightKg || 65;
   const hours = _selDurationMin / 60;
-  const burned = Math.round(_selActivityType.cal * w * hours);
+  const calcBurned = Math.round(_selActivityType.cal * w * hours);
+  // Use AI calories from fitness app screenshot if available
+  const burned = (_aiActivityData && _aiActivityData.calories > 0) ? _aiActivityData.calories : calcBurned;
 
   const entryDate = _activityOverrideDate || fmtDate(new Date());
   const entry = {
@@ -2592,24 +2646,40 @@ function saveActivity() {
     photo:    _activityPhoto || null,
   };
 
+  // Add AI-recognized extra metrics
+  if (_aiActivityData) {
+    if (_aiActivityData.distance_km) entry.distance_km = _aiActivityData.distance_km;
+    if (_aiActivityData.avg_hr)      entry.avg_hr = _aiActivityData.avg_hr;
+    if (_aiActivityData.max_hr)      entry.max_hr = _aiActivityData.max_hr;
+    if (_aiActivityData.steps)       entry.steps = _aiActivityData.steps;
+    if (_aiActivityData.avg_pace)    entry.avg_pace = _aiActivityData.avg_pace;
+    if (_aiActivityData.description) entry.aiDescription = _aiActivityData.description;
+  }
+
   const all = getActivities();
   all.push(entry);
   localStorage.setItem('activity_entries', JSON.stringify(all));
   scheduleCloudSync();
+
+  // Cache intensity check before reset
+  const wasIntense = _selActivityType ? _selActivityType.cal >= 5 : false;
 
   // Reset selection
   _selActivityType = null;
   _selDurationMin  = null;
   _activityPhoto   = null;
   _activityOverrideDate = null;
+  _aiActivityData  = null;
   document.querySelectorAll('.activity-chip.selected, .duration-chip.selected').forEach(b => b.classList.remove('selected'));
   $('activity-preview').style.display = 'none';
   $('activity-save-btn').style.display = 'none';
   $('activity-photo-preview').style.display = 'none';
   $('activity-photo-input').value = '';
+  const extrasEl = $('activity-preview-extras');
+  if (extrasEl) extrasEl.innerHTML = '';
 
   // Hydration recommendation for long/intense activities
-  const isIntense = _selActivityType ? _selActivityType.cal >= 5 : false;
+  const isIntense = wasIntense;
   const isLong = entry.duration >= 30;
   let actMsg = '🏃 Активность записана! −' + burned + ' ккал';
   if (isLong || isIntense) {
@@ -3128,19 +3198,26 @@ function renderDiary() {
     const totalBurned = dayActivities.reduce((s, a) => s + (a.calBurned || 0), 0);
     html += `<div class="diary-section">
       <div class="diary-section-title">🏃 Активности (−${totalBurned} ккал)</div>
-      ${dayActivities.map(a => `
+      ${dayActivities.map(a => {
+        const extras = [];
+        if (a.distance_km) extras.push(`📏 ${a.distance_km} км`);
+        if (a.avg_hr) extras.push(`💓 ${a.avg_hr}`);
+        if (a.steps) extras.push(`👣 ${a.steps}`);
+        if (a.avg_pace) extras.push(`⏱️ ${a.avg_pace}`);
+        return `
         <div class="meal-entry" style="border-left-color:var(--secondary)">
           <div class="meal-thumb">${a.label.split(' ')[0]}</div>
           <div class="meal-info">
             <div class="meal-name">${esc(a.label.replace(/^[^\s]+\s*/, ''))}</div>
-            <div class="meal-time">${a.time} · ${a.duration} мин</div>
+            <div class="meal-time">${a.time} · ${a.duration} мин${extras.length ? ' · ' + extras.join(' · ') : ''}</div>
           </div>
           <div class="meal-right">
             <div class="meal-calories" style="color:var(--secondary)">−${a.calBurned}</div>
             <div class="meal-cal-label">ккал</div>
             <button class="delete-btn" onclick="deleteActivity(${a.id});renderDiary()">🗑️</button>
           </div>
-        </div>`).join('')}
+        </div>`;
+      }).join('')}
     </div>`;
   }
 
