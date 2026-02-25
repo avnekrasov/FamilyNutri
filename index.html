@@ -3552,7 +3552,7 @@ function updateAuthUI() {
     loggedOut.style.display = 'none';
     loggedIn.style.display = 'block';
     $('auth-user-email').textContent = _fbUser.email || 'Аноним';
-    $('auth-user-sync').textContent = 'Подключено к облаку ✅';
+    $('auth-user-sync').textContent = 'Подключено к облаку ✅  (ID: ' + _fbUser.uid.slice(0,8) + '…)';
   } else {
     loggedOut.style.display = 'block';
     loggedIn.style.display = 'none';
@@ -3578,30 +3578,58 @@ async function cloudSignIn() {
   if (btn) { btn.textContent = '⏳ Подключение...'; btn.disabled = true; }
 
   try {
-    // Try all password variants in order
-    let loggedIn = false;
-    const passwords = ['familynutri2024', 'familynutri-' + email];
-    for (const pwd of passwords) {
-      try {
-        await _fbAuth.signInWithEmailAndPassword(email, pwd);
-        loggedIn = true;
-        toast('✅ Вход выполнен!');
-        break;
-      } catch(e) {
-        console.log('Sign-in attempt failed:', e.code);
+    // Step 1: Try sign in with main password
+    try {
+      await _fbAuth.signInWithEmailAndPassword(email, 'familynutri2024');
+      console.log('✅ Signed in, UID:', _fbAuth.currentUser?.uid);
+      toast('✅ Вход выполнен!');
+      return;
+    } catch(e) {
+      console.log('Sign-in attempt 1:', e.code);
+      // auth/user-not-found — user doesn't exist, create below
+      // auth/wrong-password — wrong password, try alternative
+      // auth/invalid-credential — could be wrong password or user not found (new Firebase SDK)
+      if (e.code === 'auth/user-not-found') {
+        // Definitely new user — create account
+        try {
+          await _fbAuth.createUserWithEmailAndPassword(email, 'familynutri2024');
+          console.log('✅ Account created, UID:', _fbAuth.currentUser?.uid);
+          toast('✅ Аккаунт создан!');
+          return;
+        } catch(createErr) {
+          handleFirebaseAuthError(createErr);
+          return;
+        }
       }
     }
-    if (!loggedIn) {
-      // User doesn't exist — create new account
-      try {
-        await _fbAuth.createUserWithEmailAndPassword(email, 'familynutri2024');
-        toast('✅ Аккаунт создан!');
-      } catch(createErr) {
-        if (createErr.code === 'auth/email-already-in-use') {
-          toast('❌ Аккаунт с этим email уже существует, но пароль не подходит. Обратитесь к администратору.', 5000);
-        } else {
-          handleFirebaseAuthError(createErr);
+
+    // Step 2: Try alternative password
+    try {
+      await _fbAuth.signInWithEmailAndPassword(email, 'familynutri-' + email);
+      console.log('✅ Signed in with alt password, UID:', _fbAuth.currentUser?.uid);
+      toast('✅ Вход выполнен!');
+      return;
+    } catch(e2) {
+      console.log('Sign-in attempt 2:', e2.code);
+    }
+
+    // Step 3: All sign-in failed. Try to create (will fail if exists)
+    try {
+      await _fbAuth.createUserWithEmailAndPassword(email, 'familynutri2024');
+      console.log('✅ Account created, UID:', _fbAuth.currentUser?.uid);
+      toast('✅ Аккаунт создан!');
+    } catch(createErr) {
+      if (createErr.code === 'auth/email-already-in-use') {
+        // Account exists but neither password works — try password reset
+        toast('❌ Пароль не подходит. Попробуй сбросить пароль.', 5000);
+        try {
+          await _fbAuth.sendPasswordResetEmail(email);
+          toast('📧 Письмо для сброса пароля отправлено на ' + email, 6000);
+        } catch(resetErr) {
+          console.warn('Password reset failed:', resetErr.code);
         }
+      } else {
+        handleFirebaseAuthError(createErr);
       }
     }
   } catch(outerErr) {
@@ -3708,7 +3736,8 @@ async function cloudLoadBackup() {
       }
     }
     if (!data) {
-      toast('Бэкап не найден в облаке. Убедись что вошёл с тем же email.', 4000);
+      const uid = _fbUser.uid.slice(0,8);
+      toast('Бэкап не найден (ID: ' + uid + '…). Убедись что email совпадает на обоих устройствах и что ты сначала сохранил данные.', 6000);
       return;
     }
     restoreFromBackup(data);
@@ -3731,7 +3760,15 @@ function showFirestoreRulesHelp() {
     el.innerHTML = `❌ Нужно настроить правила Firestore:<br>
     <a href="https://console.firebase.google.com/project/familynutri-62784/firestore/rules" target="_blank" style="color:#3498DB;font-size:11px">
     Открыть Firestore Rules</a><br>
-    <span style="font-size:10px">Вставить: <code>allow read, write: if request.auth != null;</code></span>`;
+    <span style="font-size:10px">Заменить правила на:<br><code style="display:block;white-space:pre;margin-top:4px;background:#1a1a2e;padding:6px;border-radius:6px;font-size:9px">rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{collection}/{userId} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == userId;
+    }
+  }
+}</code></span>`;
   }
 }
 
