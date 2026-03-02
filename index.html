@@ -546,6 +546,10 @@ body {
   <div class="content padded-bottom">
     <!-- VPN Warning -->
     <div id="vpn-warning" style="display:none;background:#FFF3CD;border:1px solid #FFEAA7;border-radius:12px;padding:12px;margin-bottom:10px;font-size:13px;color:#856404"></div>
+    <!-- MORNING CHECKLIST -->
+    <div id="morning-checklist-card"></div>
+    <!-- ALCOHOL/CHEAT BRIEF -->
+    <div id="alcohol-cheat-brief"></div>
     <!-- API Counter -->
     <div style="text-align:right;margin-bottom:4px">
       <span id="api-counter" style="display:none;font-size:11px;color:var(--text-muted)"></span>
@@ -607,11 +611,18 @@ body {
         <!-- Divider -->
         <div style="width:1px;background:var(--border);margin:4px 0"></div>
 
-        <!-- ACTIVITY: equal block -->
+        <!-- ACTIVITY -->
         <div style="flex:1;display:flex;flex-direction:column;gap:8px">
           <div style="font-size:13px;font-weight:700;color:var(--text-muted);text-align:center">🏃 Активность</div>
           <button class="btn btn-secondary" onclick="nav('activity')" style="flex:1;display:flex;align-items:center;justify-content:center;font-size:30px;border-radius:16px;min-height:70px;padding:0">🏃</button>
-          <div style="font-size:12px;color:var(--text-muted);text-align:center">Записать тренировку</div>
+          <div style="font-size:12px;color:var(--text-muted);text-align:center">Тренировка</div>
+        </div>
+
+        <!-- ALCOHOL (18+ only) -->
+        <div id="alcohol-btn-block" style="display:none;flex-direction:column;gap:8px;width:60px">
+          <div style="font-size:13px;font-weight:700;color:var(--text-muted);text-align:center">🍷</div>
+          <button class="btn btn-ghost" onclick="showAlcoholModal()" style="flex:1;display:flex;align-items:center;justify-content:center;font-size:24px;border-radius:16px;min-height:70px;padding:0;border:2px dashed var(--border)">🍷</button>
+          <div style="font-size:10px;color:var(--text-muted);text-align:center">Алкоголь</div>
         </div>
       </div>
     </div>
@@ -771,6 +782,12 @@ body {
             <option value="5">🤩 Восторг</option>
           </select>
         </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px">
+          <input type="checkbox" id="confirm-cheatmeal" style="width:20px;height:20px;accent-color:var(--unhealthy)">
+          🍔 Читмил (нарушение диеты)
+        </label>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label>Комментарий (необязательно)</label>
@@ -1149,6 +1166,12 @@ body {
     </div>
 
     <div class="card">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:10px">🎯 Цели здоровья</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Выбранные цели учитываются во всех рекомендациях AI</p>
+      <div id="settings-goals-chips" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+    </div>
+
+    <div class="card">
       <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🔑 API настройки</h3>
       <div class="form-group">
         <label>API ключ Gemini</label>
@@ -1289,6 +1312,7 @@ const S = {
   heightCm: 0,
   weightKg: 0,
   activityLevel: 'light', // sedentary|light|moderate|active|very_active
+  healthGoals: [],       // ['sleep', 'weight', ...] from settings
   dailyNorms: { cal: 2000, p: 60, f: 65, c: 260 }, // calculated
   diaryDate: new Date(),
   capturedImg: null,
@@ -1310,6 +1334,7 @@ function init() {
   S.heightCm      = parseFloat(ls('user_height')) || 0;
   S.weightKg      = parseFloat(ls('user_weight')) || 0;
   S.activityLevel = ls('user_activity') || 'light';
+  try { S.healthGoals = JSON.parse(ls('health_goals') || '[]'); } catch { S.healthGoals = []; }
   S.dailyNorms    = calcDailyNorms();
 
   // Firebase init
@@ -1371,7 +1396,16 @@ function nav(id) {
     $('key-test-result').style.display = 'none';
     updateNormsInfo();
     updateAuthUI();
+    renderSettingsGoals();
   }
+}
+
+function renderSettingsGoals() {
+  const cont = $('settings-goals-chips');
+  if (!cont) return;
+  cont.innerHTML = Object.entries(HEALTH_GOALS).map(([key, g]) =>
+    `<button class="activity-chip${S.healthGoals.includes(key) ? ' selected' : ''}" onclick="toggleHealthGoal('${key}')" style="font-size:13px;padding:8px 12px">${g.icon} ${g.label}</button>`
+  ).join('');
 }
 
 // ──────────────────────────────────────────
@@ -1436,6 +1470,14 @@ function refreshMain() {
   const gr    = h < 11 ? 'Доброе утро' : h < 17 ? 'Добрый день' : 'Добрый вечер';
   $('main-greeting').textContent = `${gr}, ${S.childName}! 👋`;
   $('main-date').textContent     = formatFullDate(now);
+
+  // Morning checklist & alcohol brief
+  renderMorningChecklist();
+  renderAlcoholCheatCard();
+
+  // Show alcohol button only for 18+
+  const alcBtn = $('alcohol-btn-block');
+  if (alcBtn) alcBtn.style.display = calcAge(S.birthDate) >= 18 ? 'flex' : 'none';
 
   const entries = todayEntries();
   const t = totals(entries);
@@ -2286,6 +2328,7 @@ async function autoSaveFromConfirm() {
     hunger:      parseInt($('confirm-hunger')?.value) || 0,
     enjoyment:   parseInt($('confirm-enjoy')?.value) || 0,
     components:  r.components || [],
+    isCheatmeal: !!($('confirm-cheatmeal')?.checked),
     thumbnail:   thumb,
   };
 
@@ -2734,6 +2777,20 @@ function getWeightHistory() {
   catch { return []; }
 }
 
+function getMorningChecklist() {
+  try { return JSON.parse(localStorage.getItem('morning_checklist') || '{}'); }
+  catch { return {}; }
+}
+
+function getTodayChecklist() {
+  return getMorningChecklist()[fmtDate(new Date())] || null;
+}
+
+function getAlcoholCheatLog() {
+  try { return JSON.parse(localStorage.getItem('alcohol_cheat_log') || '[]'); }
+  catch { return []; }
+}
+
 function saveWeight(dateOverride) {
   const input = $('weight-today-input');
   const val = parseFloat(input.value);
@@ -2833,6 +2890,219 @@ function refreshWeightWidget() {
 // ──────────────────────────────────────────
 // AI RECOMMENDATIONS
 // ──────────────────────────────────────────
+// ──────────────────────────────────────────
+// MORNING CHECKLIST
+// ──────────────────────────────────────────
+const CHECKLIST_QUESTIONS = [
+  { key: 'sleep',     icon: '😴', label: 'Сон',          emojis: ['😫','😕','😐','🙂','😴'] },
+  { key: 'energy',    icon: '⚡', label: 'Энергия',      emojis: ['🪫','😩','😐','💪','⚡'] },
+  { key: 'mood',      icon: '😊', label: 'Настроение',   emojis: ['😞','😕','😐','🙂','😊'] },
+  { key: 'wellbeing', icon: '🏥', label: 'Самочувствие', emojis: ['🤒','😣','😐','🙂','💚'] },
+  { key: 'stress',    icon: '😰', label: 'Стресс',       emojis: ['😱','😰','😐','🙂','😌'] },
+];
+
+let _checklistDraft = {};
+
+function renderMorningChecklist() {
+  const card = $('morning-checklist-card');
+  if (!card) return;
+  const today = fmtDate(new Date());
+  const saved = getMorningChecklist()[today];
+
+  if (saved) {
+    // Compact summary
+    const summary = CHECKLIST_QUESTIONS.map(q => {
+      const v = saved[q.key] || 3;
+      return `<span title="${q.label}">${q.emojis[v - 1]} ${v}</span>`;
+    }).join(' · ');
+    card.innerHTML = `<div class="card" style="padding:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:13px">☀️ ${summary}</div>
+        <button style="background:none;border:none;font-size:14px;cursor:pointer" onclick="openMorningChecklist()">✏️</button>
+      </div>
+    </div>`;
+    return;
+  }
+
+  // Full checklist form
+  _checklistDraft = {};
+  let rows = CHECKLIST_QUESTIONS.map(q => {
+    const btns = q.emojis.map((em, i) =>
+      `<button class="checklist-btn" data-q="${q.key}" data-v="${i + 1}" onclick="pickChecklist('${q.key}',${i + 1},this)" style="width:36px;height:36px;border:2px solid var(--border);border-radius:10px;background:var(--card);font-size:18px;cursor:pointer;transition:all 0.2s">${em}</button>`
+    ).join('');
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <div style="width:28px;text-align:center;font-size:16px">${q.icon}</div>
+      <div style="flex:1;display:flex;gap:6px;justify-content:space-between">${btns}</div>
+    </div>`;
+  }).join('');
+
+  card.innerHTML = `<div class="card">
+    <h3 style="font-size:15px;font-weight:800;margin-bottom:10px">☀️ Как ты сегодня?</h3>
+    ${rows}
+    <button class="btn btn-primary" style="width:100%;margin-top:6px;padding:10px;font-size:14px" onclick="saveMorningChecklist()" id="save-checklist-btn" disabled>✅ Готово</button>
+  </div>`;
+}
+
+function openMorningChecklist() {
+  // Reset to show full form by clearing saved for re-entry
+  const today = fmtDate(new Date());
+  const all = getMorningChecklist();
+  _checklistDraft = all[today] || {};
+  delete all[today];
+  localStorage.setItem('morning_checklist', JSON.stringify(all));
+  renderMorningChecklist();
+  // Re-select saved values
+  CHECKLIST_QUESTIONS.forEach(q => {
+    if (_checklistDraft[q.key]) pickChecklist(q.key, _checklistDraft[q.key]);
+  });
+}
+
+function pickChecklist(key, val, el) {
+  _checklistDraft[key] = val;
+  // Highlight selected button
+  document.querySelectorAll(`.checklist-btn[data-q="${key}"]`).forEach(b => {
+    b.style.border = '2px solid var(--border)';
+    b.style.background = 'var(--card)';
+    b.style.transform = 'scale(1)';
+  });
+  const selected = document.querySelector(`.checklist-btn[data-q="${key}"][data-v="${val}"]`);
+  if (selected) {
+    selected.style.border = '2px solid var(--primary)';
+    selected.style.background = '#E8F5E9';
+    selected.style.transform = 'scale(1.15)';
+  }
+  // Enable save if all answered
+  const allAnswered = CHECKLIST_QUESTIONS.every(q => _checklistDraft[q.key]);
+  const btn = $('save-checklist-btn');
+  if (btn) btn.disabled = !allAnswered;
+}
+
+function saveMorningChecklist() {
+  if (!CHECKLIST_QUESTIONS.every(q => _checklistDraft[q.key])) return;
+  const today = fmtDate(new Date());
+  const all = getMorningChecklist();
+  all[today] = { ...(_checklistDraft), ts: Date.now() };
+  localStorage.setItem('morning_checklist', JSON.stringify(all));
+  scheduleCloudSync();
+  renderMorningChecklist();
+  toast('☀️ Чеклист сохранён!');
+  // Refresh AI advice to use new checklist data
+  if (S.apiKey) requestAIAdvice();
+}
+
+// ──────────────────────────────────────────
+// ALCOHOL / CHEAT TRACKING
+// ──────────────────────────────────────────
+function showAlcoholModal() {
+  if (calcAge(S.birthDate) < 18) { toast('Доступно только для пользователей старше 18 лет'); return; }
+  const overlay = document.createElement('div');
+  overlay.id = 'alcohol-modal';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = `<div style="background:var(--card);border-radius:20px;padding:20px;max-width:360px;width:100%">
+    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">🍷 Записать алкоголь</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+      <button class="activity-chip alc-type-chip" data-type="🍺 Пиво" onclick="pickAlcType(this)" style="font-size:13px;padding:8px 12px">🍺 Пиво</button>
+      <button class="activity-chip alc-type-chip" data-type="🍷 Вино" onclick="pickAlcType(this)" style="font-size:13px;padding:8px 12px">🍷 Вино</button>
+      <button class="activity-chip alc-type-chip" data-type="🥃 Крепкое" onclick="pickAlcType(this)" style="font-size:13px;padding:8px 12px">🥃 Крепкое</button>
+      <button class="activity-chip alc-type-chip" data-type="🍸 Коктейль" onclick="pickAlcType(this)" style="font-size:13px;padding:8px 12px">🍸 Коктейль</button>
+      <button class="activity-chip alc-type-chip" data-type="🧃 Другое" onclick="pickAlcType(this)" style="font-size:13px;padding:8px 12px">🧃 Другое</button>
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label style="font-size:12px;font-weight:600">Количество</label>
+      <input type="text" id="alc-amount" placeholder="Напр: 2 бокала, 50 мл, 0.5л" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg)">
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeAlcoholModal()">Отмена</button>
+      <button class="btn btn-primary" style="flex:1" onclick="saveAlcoholEntry()" id="save-alc-btn">💾 Записать</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeAlcoholModal(); });
+}
+
+let _selectedAlcType = '';
+function pickAlcType(el) {
+  document.querySelectorAll('.alc-type-chip').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  _selectedAlcType = el.dataset.type;
+}
+
+function closeAlcoholModal() {
+  const m = $('alcohol-modal');
+  if (m) m.remove();
+  _selectedAlcType = '';
+}
+
+function saveAlcoholEntry() {
+  if (!_selectedAlcType) { toast('Выбери тип напитка'); return; }
+  const amount = ($('alc-amount')?.value || '').trim();
+  const log = getAlcoholCheatLog();
+  log.push({
+    id: Date.now(),
+    date: fmtDate(new Date()),
+    time: fmtTime(new Date()),
+    type: 'alcohol',
+    name: _selectedAlcType,
+    amount: amount || '—',
+  });
+  localStorage.setItem('alcohol_cheat_log', JSON.stringify(log));
+  scheduleCloudSync();
+  closeAlcoholModal();
+  toast('🍷 Алкоголь записан');
+  refreshMain();
+}
+
+function renderAlcoholCheatCard() {
+  const card = $('alcohol-cheat-brief');
+  if (!card) return;
+
+  const d7 = new Date(); d7.setDate(d7.getDate() - 7);
+  const d7str = fmtDate(d7);
+  const log = getAlcoholCheatLog().filter(a => a.date >= d7str);
+  const entries = getEntries().filter(e => e.date >= d7str && e.isCheatmeal);
+  const alcCount = log.filter(a => a.type === 'alcohol').length;
+  const cheatCount = entries.length;
+
+  if (!alcCount && !cheatCount) { card.innerHTML = ''; return; }
+
+  // Check yesterday correlation
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+  const yStr = fmtDate(yesterday);
+  const yAlc = log.filter(a => a.date === yStr && a.type === 'alcohol');
+  const todayCheck = getTodayChecklist();
+  let warning = '';
+  if (yAlc.length && todayCheck) {
+    const badMetrics = [];
+    if (todayCheck.sleep <= 2) badMetrics.push(`сон ${todayCheck.sleep}/5`);
+    if (todayCheck.energy <= 2) badMetrics.push(`энергия ${todayCheck.energy}/5`);
+    if (todayCheck.wellbeing <= 2) badMetrics.push(`самочувствие ${todayCheck.wellbeing}/5`);
+    if (badMetrics.length) {
+      warning = `<div style="margin-top:8px;padding:8px 10px;background:#FDEDEC;border-radius:8px;font-size:12px;color:#C0392B">⚠️ Вчера был алкоголь — возможно повлиял: ${badMetrics.join(', ')}</div>`;
+    }
+  }
+
+  // 7-day timeline
+  let timeline = '';
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const ds = fmtDate(d);
+    const dayAlc = log.filter(a => a.date === ds && a.type === 'alcohol').length;
+    const dayCheat = entries.filter(e => e.date === ds).length;
+    const dayName = d.toLocaleDateString('ru', { weekday: 'short' }).slice(0, 2);
+    const dot = dayAlc ? '🍷' : dayCheat ? '🍔' : '<span style="color:var(--border)">·</span>';
+    timeline += `<div style="flex:1;text-align:center"><div style="font-size:14px">${dot}</div><div style="font-size:9px;color:var(--text-muted)">${dayName}</div></div>`;
+  }
+
+  card.innerHTML = `<div class="card" style="padding:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <span style="font-size:13px;font-weight:700">📅 Последние 7 дней</span>
+      <span style="font-size:12px;color:var(--text-muted)">${alcCount ? '🍷 ×' + alcCount : ''} ${cheatCount ? '🍔 ×' + cheatCount : ''}</span>
+    </div>
+    <div style="display:flex;gap:2px">${timeline}</div>
+    ${warning}
+  </div>`;
+}
+
 let _lastAIAdvice = '';
 let _lastAIAdviceHash = '';
 let _lastAIAdviceTime = 0;
@@ -2909,6 +3179,51 @@ function buildQuickTips(t, burned, actOnly) {
   return tips.map(t => `<div style="padding:4px 0">${t}</div>`).join('');
 }
 
+// Build wellness context for AI prompts (checklist, goals, yesterday data, alcohol)
+function buildWellnessContext() {
+  const lines = [];
+  // Morning checklist
+  const cl = getTodayChecklist();
+  if (cl) {
+    const labels = { sleep: 'Сон', energy: 'Энергия', mood: 'Настроение', wellbeing: 'Самочувствие', stress: 'Стресс' };
+    lines.push('Утренний чеклист сегодня: ' + Object.entries(labels).map(([k, l]) => `${l} ${cl[k] || '?'}/5`).join(', '));
+  }
+  // Health goals
+  if (S.healthGoals.length) {
+    lines.push('Цели здоровья: ' + S.healthGoals.map(k => HEALTH_GOALS[k] ? HEALTH_GOALS[k].label : k).join(', '));
+  }
+  // Yesterday's food
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+  const yDate = fmtDate(yesterday);
+  const yEntries = getEntries().filter(e => e.date === yDate);
+  if (yEntries.length) {
+    const yMeals = yEntries.map(e => e.dishName).join(', ');
+    const yTotals = totals(yEntries);
+    lines.push(`Вчера ел: ${yMeals} (${yTotals.cal} ккал, Б:${yTotals.p}г Ж:${yTotals.f}г У:${yTotals.c}г)`);
+    const cheatCount = yEntries.filter(e => e.isCheatmeal).length;
+    if (cheatCount) lines.push(`Вчера читмилов: ${cheatCount}`);
+  }
+  // Yesterday's activities
+  const yActs = getActivities().filter(a => a.date === yDate);
+  if (yActs.length) {
+    const actNames = yActs.map(a => `${a.name || a.type || 'тренировка'} ${a.burnedCal || 0} ккал`).join(', ');
+    lines.push(`Вчера активность: ${actNames}`);
+  }
+  // Yesterday's alcohol
+  const alcLog = getAlcoholCheatLog();
+  const yAlc = alcLog.filter(a => a.date === yDate && a.type === 'alcohol');
+  if (yAlc.length) {
+    lines.push(`Вчера алкоголь: ${yAlc.map(a => `${a.name} ${a.amount || ''}`).join(', ')}`);
+  }
+  // Today's alcohol (if any)
+  const tDate = fmtDate(new Date());
+  const tAlc = alcLog.filter(a => a.date === tDate && a.type === 'alcohol');
+  if (tAlc.length) {
+    lines.push(`Сегодня алкоголь: ${tAlc.map(a => `${a.name} ${a.amount || ''}`).join(', ')}`);
+  }
+  return lines.join('\n');
+}
+
 async function fetchAIAdvice(t, burned, actOnly, hash) {
   const entries = todayEntries();
   const norm = S.dailyNorms.cal || 2000;
@@ -2916,6 +3231,7 @@ async function fetchAIAdvice(t, burned, actOnly, hash) {
   const hour = new Date().getHours();
   const meals = entries.map(e => e.dishName).join(', ') || 'ничего';
   const age = calcAge(S.birthDate);
+  const wellness = buildWellnessContext();
 
   const prompt = `Ты диетолог-помощник. Дай КРАТКИЙ персональный совет (3-4 предложения) по питанию и активности на оставшийся день.
 
@@ -2927,7 +3243,10 @@ async function fetchAIAdvice(t, burned, actOnly, hash) {
 - Сожжено: ${burned} ккал (BMR к этому часу + ${actOnly} ккал тренировок)
 - Баланс: ${balance > 0 ? '+' : ''}${balance} ккал
 - Норма (BMR): ${norm} ккал/день
+${wellness ? '\n' + wellness : ''}
 
+Учитывай утреннее самочувствие: если плохой сон — рекомендуй энергетические продукты и лёгкие блюда; если стресс высокий — антистресс-продукты (магний, омега-3, тёмный шоколад); если вчера был алкоголь — восстановительные продукты (вода, электролиты, лёгкая еда).
+Учитывай цели здоровья пользователя в рекомендациях.
 Цель: быть в дефиците или балансе калорий. Порекомендуй конкретные блюда и активности. Говори на "ты", дружелюбно. Используй эмодзи. Только текст, без JSON/markdown.`;
 
   const text = await geminiRequest(prompt);
@@ -3046,6 +3365,7 @@ async function saveEntry() {
     userComment: $('edit-comment').value.trim(),
     hunger:      parseInt($('confirm-hunger')?.value) || 0,
     enjoyment:   parseInt($('confirm-enjoy')?.value) || 0,
+    isCheatmeal: !!($('confirm-cheatmeal')?.checked),
     thumbnail:   thumb,
   };
 
@@ -3572,7 +3892,100 @@ function renderStats() {
           '<span>' + last14[last14.length - 1].date.slice(5) + '</span>' +
           '</div>';
       })()}
+    </div>
+
+    ${renderAlcoholStatsBlock(MON)}`;
+}
+
+function renderAlcoholStatsBlock(MON) {
+  const alcLog = getAlcoholCheatLog();
+  const allEntries = getEntries();
+  const checklist = getMorningChecklist();
+  const now = new Date();
+
+  // Last 30 days
+  const d30 = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(); d.setDate(now.getDate() - i);
+    d30.push(fmtDate(d));
+  }
+
+  const alcDays = d30.filter(dt => alcLog.some(a => a.date === dt && a.type === 'alcohol'));
+  const cheatDays = d30.filter(dt => allEntries.some(e => e.date === dt && e.isCheatmeal));
+  const alcCount = alcLog.filter(a => d30.includes(a.date) && a.type === 'alcohol').length;
+  const cheatCount = allEntries.filter(e => d30.includes(e.date) && e.isCheatmeal).length;
+
+  if (!alcCount && !cheatCount) return '';
+
+  // Correlation: average checklist score on days AFTER alcohol vs days without
+  let afterAlcScores = [], normalScores = [];
+  for (let i = 1; i < d30.length; i++) {
+    const prevDate = d30[i - 1];
+    const curDate = d30[i];
+    const cl = checklist[curDate];
+    if (!cl) continue;
+    const avg = ((cl.sleep || 0) + (cl.energy || 0) + (cl.mood || 0) + (cl.wellbeing || 0)) / 4;
+    if (alcLog.some(a => a.date === prevDate && a.type === 'alcohol')) {
+      afterAlcScores.push(avg);
+    } else {
+      normalScores.push(avg);
+    }
+  }
+
+  const avgAfterAlc = afterAlcScores.length ? (afterAlcScores.reduce((s, x) => s + x, 0) / afterAlcScores.length).toFixed(1) : null;
+  const avgNormal = normalScores.length ? (normalScores.reduce((s, x) => s + x, 0) / normalScores.length).toFixed(1) : null;
+
+  // 30-day calendar strip
+  const calStrip = d30.map(dt => {
+    const hasAlc = alcLog.some(a => a.date === dt && a.type === 'alcohol');
+    const hasCheat = allEntries.some(e => e.date === dt && e.isCheatmeal);
+    const d = new Date(dt);
+    const dayNum = d.getDate();
+    const bg = hasAlc ? '#FFCDD2' : hasCheat ? '#FFF3E0' : 'var(--bg)';
+    const icon = hasAlc ? '🍷' : hasCheat ? '🍔' : '';
+    const isToday = dt === fmtDate(now);
+    return `<div style="display:flex;flex-direction:column;align-items:center;min-width:24px;padding:2px 0">
+      <div style="font-size:8px;color:var(--text-muted);${isToday ? 'font-weight:800' : ''}">${dayNum}</div>
+      <div style="width:22px;height:22px;border-radius:6px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:11px;${isToday ? 'border:2px solid var(--primary)' : ''}">${icon}</div>
     </div>`;
+  }).join('');
+
+  // Correlation message
+  let corrMsg = '';
+  if (avgAfterAlc !== null && avgNormal !== null) {
+    const diff = parseFloat(avgNormal) - parseFloat(avgAfterAlc);
+    if (diff > 0.3) {
+      corrMsg = `<div style="margin-top:10px;padding:10px;background:#FFF3E0;border-radius:10px;font-size:12px">
+        ⚠️ <b>Корреляция:</b> после алкоголя самочувствие в среднем <b>${avgAfterAlc}/5</b> (обычно <b>${avgNormal}/5</b>).
+        Разница: <span style="color:var(--unhealthy);font-weight:700">−${diff.toFixed(1)}</span> балла.
+      </div>`;
+    } else if (afterAlcScores.length >= 2) {
+      corrMsg = `<div style="margin-top:10px;padding:10px;background:#E8F5E9;border-radius:10px;font-size:12px">
+        ✅ Алкоголь пока не влияет заметно на самочувствие (после: ${avgAfterAlc}/5, обычно: ${avgNormal}/5).
+      </div>`;
+    }
+  }
+
+  return `<div class="card">
+    <h3 style="font-size:15px;font-weight:800;margin-bottom:12px">🍷 Алкоголь и читмилы (30 дней)</h3>
+    <div style="display:flex;gap:16px;margin-bottom:12px">
+      <div style="text-align:center;flex:1;padding:10px;background:var(--bg);border-radius:12px">
+        <div style="font-size:22px;font-weight:800;color:#E53935">${alcCount}</div>
+        <div style="font-size:11px;color:var(--text-muted)">🍷 Алкоголь</div>
+      </div>
+      <div style="text-align:center;flex:1;padding:10px;background:var(--bg);border-radius:12px">
+        <div style="font-size:22px;font-weight:800;color:#FF9800">${cheatCount}</div>
+        <div style="font-size:11px;color:var(--text-muted)">🍔 Читмилы</div>
+      </div>
+      <div style="text-align:center;flex:1;padding:10px;background:var(--bg);border-radius:12px">
+        <div style="font-size:22px;font-weight:800;color:var(--healthy)">${30 - alcDays.length - cheatDays.length + d30.filter(dt => alcDays.includes(dt) && cheatDays.includes(dt)).length}</div>
+        <div style="font-size:11px;color:var(--text-muted)">✅ Чистых дней</div>
+      </div>
+    </div>
+    <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Календарь</div>
+    <div style="display:flex;overflow-x:auto;gap:2px;padding-bottom:4px">${calStrip}</div>
+    ${corrMsg}
+  </div>`;
 }
 
 // ──────────────────────────────────────────
@@ -3632,7 +4045,7 @@ const UNHEALTHY_SWAPS = {
   'кола': 'минеральная вода с лимоном',
 };
 
-let _selectedGoals = [];
+// S.healthGoals removed — now using S.healthGoals (global, saved in settings)
 
 function renderRatings() {
   const cont = $('ratings-content');
@@ -3693,16 +4106,6 @@ function renderRatings() {
     trend = diff > 0.3 ? '📈 Улучшается!' : diff < -0.3 ? '📉 Снижается' : '➡️ Стабильно';
   }
 
-  // Selected goals compact badges
-  const selectedBadges = _selectedGoals.length
-    ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Мои цели:</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">${_selectedGoals.map(k => {
-          const g = HEALTH_GOALS[k];
-          return g ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--primary);color:white;border-radius:20px;font-size:12px;font-weight:600">${g.icon} ${g.label}</span>` : '';
-        }).join('')}</div>
-       </div>` : '';
-
   const qualityHtml = `<div class="card">
     <h3 style="font-size:16px;margin-bottom:12px">📊 Качество питания (30 дней)</h3>
     <div style="height:16px;border-radius:8px;overflow:hidden;display:flex;margin-bottom:10px">
@@ -3719,7 +4122,6 @@ function renderRatings() {
       <div style="font-size:13px">Средняя оценка: <b>${avgScore30}</b>/10</div>
       ${trend ? `<div style="font-size:12px">${trend}</div>` : ''}
     </div>
-    ${selectedBadges}
   </div>`;
 
   // ── Block 2: AI Meal Plan for tomorrow ──
@@ -3784,17 +4186,24 @@ function renderRatings() {
       }).join('') + '</div>';
   }
 
-  // Goal chips + details area inside the combined block
-  const goalChips = Object.entries(HEALTH_GOALS).map(([key, g]) =>
-    `<button class="activity-chip${_selectedGoals.includes(key) ? ' selected' : ''}" onclick="selectHealthGoal('${key}')" style="font-size:13px;padding:8px 12px">${g.icon} ${g.label}</button>`
-  ).join('');
-
-  const goalsSection = `<div style="padding-top:12px;border-top:2px solid var(--border)">
-    <h4 style="font-size:15px;margin-bottom:8px">🎯 Цели здоровья</h4>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Выбери цели — получи персональные рекомендации</p>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${goalChips}</div>
-    <div id="goal-details"></div>
-  </div>`;
+  // Goals section — shows recommendations for selected goals (selection is in Settings)
+  let goalsSection = '';
+  if (S.healthGoals.length) {
+    const goalBadges = S.healthGoals.map(k => {
+      const g = HEALTH_GOALS[k];
+      return g ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--primary);color:white;border-radius:20px;font-size:12px;font-weight:600">${g.icon} ${g.label}</span>` : '';
+    }).join('');
+    goalsSection = `<div style="padding-top:12px;border-top:2px solid var(--border)">
+      <h4 style="font-size:15px;margin-bottom:8px">🎯 Рекомендации по целям</h4>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${goalBadges}</div>
+      <div id="goal-details"></div>
+    </div>`;
+  } else {
+    goalsSection = `<div style="padding-top:12px;border-top:2px solid var(--border);text-align:center;padding-bottom:8px">
+      <div style="font-size:14px;color:var(--text-muted);margin-bottom:10px">🎯 Выбери цели здоровья в настройках для персональных рекомендаций</div>
+      <button class="btn btn-ghost" style="font-size:13px" onclick="nav('settings')">⚙️ Перейти в настройки</button>
+    </div>`;
+  }
 
   const combinedHtml = `<div class="card">
     <h3 style="font-size:16px;margin-bottom:14px">📋 Рейтинг и рекомендации</h3>
@@ -3806,7 +4215,7 @@ function renderRatings() {
   cont.innerHTML = qualityHtml + mealPlanHtml + combinedHtml;
 
   // Restore goal details if selected
-  if (_selectedGoals.length) _selectedGoals.forEach(g => showGoalDetails(g));
+  if (S.healthGoals.length) S.healthGoals.forEach(g => showGoalDetails(g));
 
   // Restore cached meal plan (if less than 12h old)
   try {
@@ -3821,11 +4230,16 @@ function renderRatings() {
   } catch(e) {}
 }
 
-function selectHealthGoal(key) {
-  const idx = _selectedGoals.indexOf(key);
-  if (idx >= 0) _selectedGoals.splice(idx, 1);
-  else _selectedGoals.push(key);
-  renderRatings();
+function toggleHealthGoal(key) {
+  const idx = S.healthGoals.indexOf(key);
+  if (idx >= 0) S.healthGoals.splice(idx, 1);
+  else S.healthGoals.push(key);
+  ls('health_goals', JSON.stringify(S.healthGoals));
+  scheduleCloudSync();
+  // Re-render wherever goals are displayed
+  const settingsGoals = $('settings-goals-chips');
+  if (settingsGoals) renderSettingsGoals();
+  if (document.getElementById('screen-ratings')?.classList.contains('active')) renderRatings();
 }
 
 function showGoalDetails(key) {
@@ -3884,11 +4298,13 @@ async function requestAIGoalAdvice(key) {
     const meals = [...new Set(recent.map(e => e.dishName))].slice(0, 20).join(', ') || 'нет данных';
     const age = calcAge(S.birthDate);
 
+    const wellness = buildWellnessContext();
     const prompt = `Ты диетолог-помощник. Пользователь выбрал цель здоровья: "${g.label}".
 За последние 7 дней ел: ${meals}.
 Профиль: возраст ${age} лет, пол ${S.gender === 'male' ? 'мужской' : 'женский'}, вес ${S.weightKg || '?'} кг.
-
+${wellness ? '\n' + wellness + '\n' : ''}
 Проанализируй рацион и дай рекомендации для цели "${g.label}".
+Учитывай текущее самочувствие из утреннего чеклиста и вчерашний алкоголь/читмилы при формировании рекомендаций.
 Ответь ТОЛЬКО JSON (без markdown):
 {
   "good": [{"name": "блюдо из рациона", "why": "почему помогает цели"}],
@@ -3970,11 +4386,19 @@ async function generateMealPlan() {
     const yMeals = entries.filter(e => e.date === fmtDate(yesterday)).map(e => e.dishName).join(', ') || 'нет данных';
 
     // Selected health goals
-    const goals = _selectedGoals.map(k => HEALTH_GOALS[k] ? HEALTH_GOALS[k].label : k).join(', ');
+    const goals = S.healthGoals.map(k => HEALTH_GOALS[k] ? HEALTH_GOALS[k].label : k).join(', ');
 
     // Tomorrow's date for display
     const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
     const tmrFmt = tomorrow.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+
+    // Wellness context: checklist, yesterday alcohol, etc.
+    const wellness = buildWellnessContext();
+
+    // Today's alcohol/cheatmeals
+    const todayStr = fmtDate(new Date());
+    const todayCheat = getEntries().filter(e => e.date === todayStr && e.isCheatmeal).length;
+    const todayAlc = getAlcoholCheatLog().filter(a => a.date === todayStr && a.type === 'alcohol');
 
     const prompt = `Ты опытный диетолог-нутрициолог. Составь подробный план питания на завтра (${tmrFmt}).
 
@@ -3982,6 +4406,9 @@ async function generateMealPlan() {
 Дневная норма: ${norms.cal} ккал, белок ${norms.p}г, жиры ${norms.f}г, углеводы ${norms.c}г.
 ${goals ? 'Цели здоровья: ' + goals + '.' : ''}
 ${context ? 'Планы на завтра: ' + context + '.' : ''}
+${wellness ? '\n' + wellness : ''}
+${todayAlc.length ? 'Сегодня был алкоголь: ' + todayAlc.map(a => `${a.name} ${a.amount || ''}`).join(', ') + '.' : ''}
+${todayCheat ? `Сегодня читмилов: ${todayCheat}.` : ''}
 
 За последнюю неделю ел: ${recentMeals}.
 Вчера ел: ${yMeals}.
@@ -3989,6 +4416,9 @@ ${context ? 'Планы на завтра: ' + context + '.' : ''}
 Составь разнообразное меню, учитывая:
 - Цели здоровья (если указаны)
 - Планы на день (если тренировка — больше белка до/после; если экзамен — продукты для мозга; если перелёт — лёгкая еда)
+- Утреннее самочувствие: если плохой сон — завтрак с энергией; если стресс — антистресс-продукты
+- Если сегодня был алкоголь — завтра предложи восстановительное меню (больше воды, электролитов, лёгкие блюда, витамины группы B)
+- Если сегодня были читмилы — завтра компенсировать лёгким меню
 - Разнообразие относительно прошлых дней
 - Реалистичные блюда из доступных продуктов
 
@@ -4550,6 +4980,9 @@ function buildBackupData() {
     diaryEntries: getEntries(),
     activities: getActivities(),
     weightHistory: getWeightHistory(),
+    healthGoals: S.healthGoals || [],
+    morningChecklist: getMorningChecklist(),
+    alcoholCheatLog: getAlcoholCheatLog(),
   };
 }
 
@@ -4693,6 +5126,27 @@ function restoreFromBackup(data) {
     const existDates = new Set(existing.map(w => w.date));
     const newW = data.weightHistory.filter(w => !existDates.has(w.date));
     localStorage.setItem('weight_history', JSON.stringify([...existing, ...newW].sort((a, b) => a.date.localeCompare(b.date))));
+  }
+
+  // Restore health goals
+  if (data.healthGoals && data.healthGoals.length) {
+    S.healthGoals = data.healthGoals;
+    ls('health_goals', JSON.stringify(S.healthGoals));
+  }
+
+  // Merge morning checklist
+  if (data.morningChecklist) {
+    const existing = getMorningChecklist();
+    const merged = { ...existing, ...data.morningChecklist };
+    localStorage.setItem('morning_checklist', JSON.stringify(merged));
+  }
+
+  // Merge alcohol/cheat log
+  if (data.alcoholCheatLog && data.alcoholCheatLog.length) {
+    const existing = getAlcoholCheatLog();
+    const existIds = new Set(existing.map(a => a.id));
+    const newItems = data.alcoholCheatLog.filter(a => !existIds.has(a.id));
+    localStorage.setItem('alcohol_cheat_log', JSON.stringify([...existing, ...newItems].sort((a, b) => a.id - b.id)));
   }
 
   S.dailyNorms = calcDailyNorms();
