@@ -814,6 +814,7 @@ body {
           </select>
         </div>
       </div>
+      <div id="confirm-ai-hint" style="display:none;background:#FFF3E0;border-radius:10px;padding:10px 14px;margin-bottom:8px;font-size:13px;color:#E65100;font-weight:500"></div>
       <div style="display:flex;align-items:center;gap:10px;padding:10px 0;margin-bottom:8px">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px">
           <input type="checkbox" id="confirm-cheatmeal" style="width:20px;height:20px;accent-color:var(--unhealthy)">
@@ -1423,12 +1424,19 @@ function init() {
   updateApiCounterUI();
   checkGoogleAccess().catch(() => {});
 
-  // One-time cleanup: remove retro-detected alcohol entries (v27 fix)
+  // One-time cleanup v29: clear all alcohol/cheatmeal data (user will re-enter manually)
   try {
-    const alcLog = getAlcoholCheatLog();
-    const cleaned = alcLog.filter(a => !a.retroDetected);
-    if (cleaned.length < alcLog.length) {
-      localStorage.setItem('alcohol_cheat_log', JSON.stringify(cleaned));
+    if (localStorage.getItem('alcohol_cheat_log')) {
+      const _alcV = localStorage.getItem('_alc_cleared_v29');
+      if (!_alcV) {
+        localStorage.setItem('alcohol_cheat_log', '[]');
+        // Also reset isCheatmeal flags on diary entries
+        const _ent = getEntries();
+        let _fix = false;
+        _ent.forEach(e => { if (e.isCheatmeal) { e.isCheatmeal = false; _fix = true; } });
+        if (_fix) localStorage.setItem('diary_entries', JSON.stringify(_ent));
+        localStorage.setItem('_alc_cleared_v29', '1');
+      }
     }
   } catch(e) {}
 }
@@ -2070,7 +2078,9 @@ async function analyzeFood(imgDataUrl, userDescription) {
   "health_color": "green" или "yellow" или "red",
   "health_comment": "2-3 предложения о пользе или вреде",
   "question": "уточняющий вопрос если нужно",
-  "components": [{"name":"компонент","cal":число,"flag":"main/drink/addon"}]
+  "components": [{"name":"компонент","cal":число,"flag":"main/drink/addon"}],
+  "maybe_alcohol": true/false,
+  "maybe_cheatmeal": true/false
 }
 
 ВАЖНО:
@@ -2081,6 +2091,8 @@ async function analyzeFood(imgDataUrl, userDescription) {
   flag "addon" = добавка/топпинг (сметана, авокадо, сыр, соус, масло)
 - dish_name = только основное блюдо, без напитков
 - calories/proteins/fats/carbs = СУММА всех компонентов
+- maybe_alcohol = true если на фото или в описании есть алкоголь (пиво, вино, коктейль и т.д.)
+- maybe_cheatmeal = true если это явный фастфуд, сладости, вредная еда (бургер, пицца, торт, чипсы и т.д.)
 
 Правила health_color:
 green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки
@@ -2233,18 +2245,35 @@ function fillConfirmScreen(r, imgData) {
   if ($('confirm-hunger')) $('confirm-hunger').value = '3';
   if ($('confirm-enjoy'))  $('confirm-enjoy').value = '3';
 
-  // Reset cheatmeal checkbox
+  // Cheatmeal: pre-check if AI suggests, otherwise reset
   const cheatCb = $('confirm-cheatmeal');
-  if (cheatCb) cheatCb.checked = false;
+  if (cheatCb) cheatCb.checked = !!r.maybe_cheatmeal;
 
-  // Reset alcohol fields
+  // Alcohol: pre-check if AI suggests, otherwise reset
   const alcCb = $('confirm-alcohol-cb');
-  if (alcCb) alcCb.checked = false;
+  if (alcCb) alcCb.checked = !!r.maybe_alcohol;
   const alcFields = $('alcohol-fields');
-  if (alcFields) alcFields.style.display = 'none';
+  if (alcFields) alcFields.style.display = r.maybe_alcohol ? 'block' : 'none';
   if ($('alc-type')) $('alc-type').value = 'beer';
   if ($('alc-strength')) $('alc-strength').value = 'light';
   if ($('alc-amount')) $('alc-amount').value = '';
+
+  // Show hint if AI detected alcohol or cheatmeal
+  const hintEl = $('confirm-ai-hint');
+  if (hintEl) {
+    if (r.maybe_alcohol && r.maybe_cheatmeal) {
+      hintEl.textContent = '💡 AI обнаружил алкоголь и читмил — проверь и скорректируй ниже';
+      hintEl.style.display = 'block';
+    } else if (r.maybe_alcohol) {
+      hintEl.textContent = '💡 Похоже на алкоголь — заполни детали ниже или сними галочку';
+      hintEl.style.display = 'block';
+    } else if (r.maybe_cheatmeal) {
+      hintEl.textContent = '💡 Похоже на читмил — подтверди или сними галочку';
+      hintEl.style.display = 'block';
+    } else {
+      hintEl.style.display = 'none';
+    }
+  }
 }
 
 function toggleAlcoholFields() {
@@ -2494,9 +2523,10 @@ async function analyzeVoiceFood(description) {
     const prompt = `Ты диетолог-помощник для детей. Пользователь описал еду голосом: "${description}".
 Оцени БЖУ и калории для стандартной порции.
 Ответь ТОЛЬКО JSON без markdown:
-{"dish_name":"название на русском","portion":"примерная порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 дружелюбных предложения","question":"уточняющий вопрос если нужно"}
+{"dish_name":"название на русском","portion":"примерная порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 дружелюбных предложения","question":"уточняющий вопрос если нужно","maybe_alcohol":true/false,"maybe_cheatmeal":true/false}
 
-Правила health_color: green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки, молочные. yellow — крупы, картофель, выпечка, полуфабрикаты. red — конфеты, фастфуд, газировка, чипсы, алкоголь.`;
+Правила health_color: green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки, молочные. yellow — крупы, картофель, выпечка, полуфабрикаты. red — конфеты, фастфуд, газировка, чипсы, алкоголь.
+maybe_alcohol = true если в описании есть алкогольный напиток. maybe_cheatmeal = true если это фастфуд, сладости, вредная еда.`;
 
     const text = await geminiRequest(prompt);
     const result = parseAIJson(text);
@@ -4108,13 +4138,6 @@ function renderDeficitWeightChart(days, norm) {
     return '';
   }).join('');
 
-  // Legend
-  const legend = `<g transform="translate(${pad.l},${H - 2})">
-    <rect x="0" y="-6" width="6" height="6" rx="1" fill="var(--healthy)" fill-opacity="0.75"/><text x="8" y="0" font-size="6.5" fill="var(--text-muted)">дефицит</text>
-    <rect x="42" y="-6" width="6" height="6" rx="1" fill="var(--unhealthy)" fill-opacity="0.75"/><text x="50" y="0" font-size="6.5" fill="var(--text-muted)">профицит</text>
-    ${hasW ? '<line x1="90" y1="-3" x2="104" y2="-3" stroke="#9B59B6" stroke-width="2"/><text x="107" y="0" font-size="6.5" fill="#9B59B6">вес</text>' : ''}
-  </g>`;
-
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;max-height:240px">
     <defs>
       <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
@@ -4132,7 +4155,6 @@ function renderDeficitWeightChart(days, norm) {
     ${yLabels}
     ${wLabels}
     ${impactMarkers}
-    ${legend}
   </svg>`;
 }
 
@@ -4160,8 +4182,9 @@ function renderStats() {
       const dayBmr = isToday ? Math.round(bmr * (new Date().getHours() * 60 + new Date().getMinutes()) / 1440) : bmr;
       const totalBurned = actBurn + dayBmr;
       const t = totals(items);
-      const balance = t.cal - totalBurned;
-      days.push({ date: d, dateStr, items, t, actBurn, dayBmr, totalBurned, balance, isToday, dayActs });
+      const hasFood = items.length > 0;
+      const balance = hasFood ? t.cal - totalBurned : 0;
+      days.push({ date: d, dateStr, items, t, actBurn, dayBmr, totalBurned, balance, isToday, dayActs, hasFood });
     }
   } else {
     const dateSet = new Set([...all.map(e => e.date), ...allActs.map(a => a.date)]);
@@ -4174,8 +4197,9 @@ function renderStats() {
       const dayBmr = isToday ? Math.round(bmr * (new Date().getHours() * 60 + new Date().getMinutes()) / 1440) : bmr;
       const totalBurned = actBurn + dayBmr;
       const t = totals(items);
-      const balance = t.cal - totalBurned;
-      days.push({ date: d, dateStr, items, t, actBurn, dayBmr, totalBurned, balance, isToday, dayActs });
+      const hasFood = items.length > 0;
+      const balance = hasFood ? t.cal - totalBurned : 0;
+      days.push({ date: d, dateStr, items, t, actBurn, dayBmr, totalBurned, balance, isToday, dayActs, hasFood });
     });
   }
 
@@ -4275,30 +4299,69 @@ function renderStats() {
     <div class="card">
       <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🏃 Активность за ${periodLabel}</h3>
       ${(() => {
-        const actDays = days.filter(d => d.actBurn > 0).reverse();
+        const actDays = days.filter(d => d.actBurn > 0);
         const totalActBurned = actDays.reduce((s, d) => s + d.actBurn, 0);
         if (!totalActBurned) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Нет записей об активности</div>';
         const maxB = Math.max(...actDays.map(d => d.actBurn), 1);
         const actColors = {walking:'#66BB6A',running:'#EF5350',swimming:'#42A5F5',skiing:'#90CAF9',football:'#FFA726',cycling:'#AB47BC',gym:'#EC407A',dancing:'#FF7043',yoga:'#26A69A',school_pe:'#5C6BC0',sauna:'#8D6E63',cleaning:'#78909C',reading:'#A1887F',study:'#7E57C2',custom:'#26C6DA'};
-        return actDays.map(d => {
-          const totalPct = Math.max(Math.round(d.actBurn / maxB * 100), 4);
-          const label = d.date.getDate() + ' ' + MON[d.date.getMonth()];
+        const aN = actDays.length;
+        const aW = 320, aH = 160;
+        const aPad = { t: 12, b: 28, l: 32, r: 8 };
+        const aCW = aW - aPad.l - aPad.r, aCH = aH - aPad.t - aPad.b;
+        const barW = Math.max(Math.min(aCW / aN * 0.7, 16), 3);
+        const gap = aCW / aN;
+        const xC = i => aPad.l + gap * i + gap / 2;
+        const yA = v => aPad.t + aCH - (v / maxB) * aCH;
+        const aLE = aN <= 7 ? 1 : aN <= 14 ? 2 : aN <= 30 ? 5 : 7;
+
+        const svgBars = actDays.map((d, i) => {
           const acts = d.dayActs || [];
-          const actIcons = [...new Set(acts.map(a => a.label.split(' ')[0]))].join('');
-          // Build stacked bar segments
           const totalCal = acts.reduce((s, a) => s + (a.calBurned || 0), 0) || 1;
-          const segments = acts.map(a => {
-            const segPct = Math.round((a.calBurned || 0) / totalCal * 100);
+          const cx = xC(i);
+          const fullH = aPad.t + aCH - yA(d.actBurn);
+          // Stacked segments bottom-up
+          let segSvg = '';
+          let curY = aPad.t + aCH;
+          acts.forEach(a => {
+            const segH = Math.max((a.calBurned || 0) / totalCal * fullH, 0.5);
             const color = actColors[a.type] || 'var(--secondary)';
-            return '<div style="width:' + segPct + '%;height:100%;background:' + color + '"></div>';
-          }).join('');
-          return '<div class="stat-bar-wrap"><div class="stat-bar-row" style="align-items:center">' +
-            '<div class="stat-bar-label" style="font-weight:' + (d.isToday ? 800 : 400) + '">' + label + '</div>' +
-            '<div class="stat-bar-bg"><div style="width:' + totalPct + '%;height:100%;border-radius:6px;overflow:hidden;display:flex">' + segments + '</div>' +
-            '<span style="position:absolute;width:100%;text-align:center;font-size:10px;font-weight:700;color:#fff;mix-blend-mode:difference;line-height:16px">−' + d.actBurn + '</span></div>' +
-            (actIcons ? '<div style="font-size:11px;min-width:28px;text-align:right;line-height:1">' + actIcons + '</div>' : '') +
-            '</div></div>';
-        }).join('') + '<div style="text-align:center;margin-top:8px;font-size:13px;color:var(--secondary);font-weight:700">Всего сожжено тренировками: ' + totalActBurned + ' ккал</div>';
+            curY -= segH;
+            segSvg += '<rect x="' + (cx - barW/2).toFixed(1) + '" y="' + curY.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + segH.toFixed(1) + '" fill="' + color + '" rx="1"/>';
+          });
+          return segSvg;
+        }).join('');
+
+        // Value labels on top of bars
+        const valLabels = actDays.map((d, i) => {
+          if (aN > 20) return '';
+          return '<text x="' + xC(i).toFixed(1) + '" y="' + (yA(d.actBurn) - 3).toFixed(1) + '" text-anchor="middle" font-size="7" fill="var(--text-muted)" font-weight="600">' + d.actBurn + '</text>';
+        }).join('');
+
+        // X date labels
+        const xDateLabels = actDays.map((d, i) => {
+          if (i % aLE !== 0 && i !== aN - 1) return '';
+          return '<text x="' + xC(i).toFixed(1) + '" y="' + (aH - 4) + '" text-anchor="middle" font-size="8" fill="var(--text-muted)" font-weight="' + (d.isToday ? 800 : 400) + '">' + d.date.getDate() + (aN <= 14 ? ' ' + MON[d.date.getMonth()] : '') + '</text>';
+        }).join('');
+
+        // Y axis labels
+        const yAxisLabels = '<text x="' + (aPad.l - 3) + '" y="' + (aPad.t + 4) + '" text-anchor="end" font-size="7" fill="var(--text-muted)">' + maxB + '</text>' +
+          '<text x="' + (aPad.l - 3) + '" y="' + (aPad.t + aCH + 2) + '" text-anchor="end" font-size="7" fill="var(--text-muted)">0</text>';
+
+        // Activity type legend
+        const usedTypes = new Set();
+        actDays.forEach(d => (d.dayActs || []).forEach(a => usedTypes.add(a.type)));
+        const actLabels = {walking:'Ходьба',running:'Бег',swimming:'Плавание',skiing:'Лыжи',football:'Футбол',cycling:'Велосипед',gym:'Зал',dancing:'Танцы',yoga:'Йога',school_pe:'Физ-ра',sauna:'Баня',cleaning:'Уборка',reading:'Чтение',study:'Учёба',custom:'Другое'};
+        const typeLegend = [...usedTypes].map(t =>
+          '<span style="display:inline-flex;align-items:center;gap:2px"><span style="width:8px;height:8px;border-radius:2px;background:' + (actColors[t] || 'var(--secondary)') + ';display:inline-block"></span> ' + (actLabels[t] || t) + '</span>'
+        ).join(' ');
+
+        return '<svg viewBox="0 0 ' + aW + ' ' + aH + '" style="width:100%;height:auto;display:block;max-height:200px">' +
+          '<line x1="' + aPad.l + '" y1="' + (aPad.t + aCH) + '" x2="' + (aPad.l + aCW) + '" y2="' + (aPad.t + aCH) + '" stroke="var(--border)" stroke-width="0.5"/>' +
+          '<line x1="' + aPad.l + '" y1="' + aPad.t + '" x2="' + aPad.l + '" y2="' + (aPad.t + aCH) + '" stroke="var(--border)" stroke-width="0.5"/>' +
+          svgBars + valLabels + xDateLabels + yAxisLabels +
+          '</svg>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;font-size:10px;color:var(--text-muted);justify-content:center">' + typeLegend + '</div>' +
+          '<div style="text-align:center;margin-top:6px;font-size:13px;color:var(--secondary);font-weight:700">Всего сожжено: ' + totalActBurned + ' ккал</div>';
       })()}
     </div>
 
