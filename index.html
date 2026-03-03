@@ -2049,7 +2049,7 @@ async function analyzeFood(imgDataUrl, userDescription) {
 Правила health_color:
 green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки
 yellow — крупы, картофель, умеренно обработанные, выпечка
-red — конфеты, торты, газировка, чипсы, фастфуд, жареное, алкоголь
+red — конфеты, торты, газировка, чипсы, фастфуд, жареное, алкоголь`;
 
   const text = await geminiRequest(prompt, imgDataUrl);
   return parseAIJson(text);
