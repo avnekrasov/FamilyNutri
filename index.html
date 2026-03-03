@@ -820,6 +820,38 @@ body {
           🍔 Читмил (нарушение диеты)
         </label>
       </div>
+      <div style="margin-bottom:10px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;margin-bottom:8px">
+          <input type="checkbox" id="confirm-alcohol-cb" onchange="toggleAlcoholFields()" style="width:20px;height:20px;accent-color:#9C27B0">
+          🍷 Содержит алкоголь
+        </label>
+        <div id="alcohol-fields" style="display:none;background:var(--bg);border-radius:12px;padding:12px;margin-top:4px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <div>
+              <label style="font-size:11px;color:var(--text-muted);margin-bottom:2px;display:block">Вид напитка</label>
+              <select id="alc-type" style="width:100%;padding:8px;border:2px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--card);color:var(--text)">
+                <option value="beer">🍺 Пиво</option>
+                <option value="wine">🍷 Вино / Просекко</option>
+                <option value="spirits">🥃 Крепкое (водка, виски...)</option>
+                <option value="cocktail">🍸 Коктейль</option>
+                <option value="other">🍹 Другое</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text-muted);margin-bottom:2px;display:block">Крепость</label>
+              <select id="alc-strength" style="width:100%;padding:8px;border:2px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--card);color:var(--text)">
+                <option value="light">🟢 Лёгкий (до 7%)</option>
+                <option value="medium">🟡 Средний (7-20%)</option>
+                <option value="strong">🔴 Крепкий (20%+)</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-muted);margin-bottom:2px;display:block">Количество</label>
+            <input type="text" id="alc-amount" placeholder="напр. 2 бокала, 500 мл, 1 бутылка" style="width:100%;padding:8px;border:2px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--card);color:var(--text);box-sizing:border-box">
+          </div>
+        </div>
+      </div>
       <div class="form-group" style="margin-bottom:0">
         <label>Комментарий (необязательно)</label>
         <div class="input-with-voice">
@@ -2038,9 +2070,7 @@ async function analyzeFood(imgDataUrl, userDescription) {
   "health_color": "green" или "yellow" или "red",
   "health_comment": "2-3 предложения о пользе или вреде",
   "question": "уточняющий вопрос если нужно",
-  "components": [{"name":"компонент","cal":число,"flag":"main/drink/addon"}],
-  "is_alcohol": true/false,
-  "is_cheatmeal": true/false
+  "components": [{"name":"компонент","cal":число,"flag":"main/drink/addon"}]
 }
 
 ВАЖНО:
@@ -2051,8 +2081,6 @@ async function analyzeFood(imgDataUrl, userDescription) {
   flag "addon" = добавка/топпинг (сметана, авокадо, сыр, соус, масло)
 - dish_name = только основное блюдо, без напитков
 - calories/proteins/fats/carbs = СУММА всех компонентов
-- is_alcohol = true если на фото или в описании есть ЛЮБОЙ алкогольный напиток (пиво, вино, коктейль, виски, водка, шампанское, ликёр и т.д.)
-- is_cheatmeal = true если еда явно вредная (фастфуд, торт, чипсы, жирная жареная еда, сладости, газировка) — health_color должен быть "red"
 
 Правила health_color:
 green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки
@@ -2205,11 +2233,24 @@ function fillConfirmScreen(r, imgData) {
   if ($('confirm-hunger')) $('confirm-hunger').value = '3';
   if ($('confirm-enjoy'))  $('confirm-enjoy').value = '3';
 
-  // Auto-check cheatmeal if AI detected unhealthy food
+  // Reset cheatmeal checkbox
   const cheatCb = $('confirm-cheatmeal');
-  if (cheatCb) {
-    cheatCb.checked = !!(r.is_cheatmeal || r.health_color === 'red');
-  }
+  if (cheatCb) cheatCb.checked = false;
+
+  // Reset alcohol fields
+  const alcCb = $('confirm-alcohol-cb');
+  if (alcCb) alcCb.checked = false;
+  const alcFields = $('alcohol-fields');
+  if (alcFields) alcFields.style.display = 'none';
+  if ($('alc-type')) $('alc-type').value = 'beer';
+  if ($('alc-strength')) $('alc-strength').value = 'light';
+  if ($('alc-amount')) $('alc-amount').value = '';
+}
+
+function toggleAlcoholFields() {
+  const cb = $('confirm-alcohol-cb');
+  const fields = $('alcohol-fields');
+  if (fields) fields.style.display = cb && cb.checked ? 'block' : 'none';
 }
 
 function speakConfirm() {
@@ -2300,7 +2341,7 @@ async function reanalyzeWithHint(hint) {
     const prevName = S.analysisResult?.dish_name || '';
     const prompt = `Пользователь уточнил что на самом деле это: "${hint}"${prevName ? `. Ранее ты определил как "${prevName}".` : ''}
 Проанализируй это блюдо как диетолог-помощник.
-Ответь ТОЛЬКО JSON: {"dish_name":"название на русском","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения","question":"вопрос если нужно","is_alcohol":true/false,"is_cheatmeal":true/false}`;
+Ответь ТОЛЬКО JSON: {"dish_name":"название на русском","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения","question":"вопрос если нужно"}`;
 
     const text = await geminiRequest(prompt, S.capturedImg);
     const result = parseAIJson(text);
@@ -2325,10 +2366,10 @@ async function reanalyzeEdited() {
       ? `Посмотри на это фото еды. Пользователь уточнил, что это: "${name}".
 Используя ФОТО и описание пользователя вместе, точно рассчитай КБЖУ (калории, белки, жиры и углеводы).
 Оцени размер порции по фото. Обязательно укажи ненулевые значения для ВСЕХ полей (calories, proteins, fats, carbs).
-Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":"","is_alcohol":true/false,"is_cheatmeal":true/false}`
+Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":""}`
       : `Пользователь сообщил что это блюдо: "${name}".
 Рассчитай КБЖУ и оцени полезность как диетолог. Обязательно укажи ненулевые значения для calories, proteins, fats, carbs.
-Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":"","is_alcohol":true/false,"is_cheatmeal":true/false}`;
+Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":""}`;
     const text = await geminiRequest(prompt, hasPhoto ? S.capturedImg : null);
     const result = parseAIJson(text);
     S.analysisResult = result;
@@ -2393,6 +2434,27 @@ async function autoSaveFromConfirm() {
 
   S.lastSavedEntry = entry;
 
+  // Save alcohol record if checkbox checked
+  if ($('confirm-alcohol-cb')?.checked) {
+    const alcTypeNames = {beer:'Пиво',wine:'Вино',spirits:'Крепкий алкоголь',cocktail:'Коктейль',other:'Алкоголь'};
+    const alcTypeVal = $('alc-type')?.value || 'other';
+    const alcName = alcTypeNames[alcTypeVal] || 'Алкоголь';
+    const alcAmount = ($('alc-amount')?.value || '').trim() || '—';
+    const alcStrength = $('alc-strength')?.value || 'light';
+    const log = getAlcoholCheatLog();
+    log.push({
+      id: entry.id + 0.5,
+      date: entry.date,
+      time: entry.time,
+      type: 'alcohol',
+      name: alcName,
+      alcType: alcTypeVal,
+      strength: alcStrength,
+      amount: alcAmount
+    });
+    localStorage.setItem('alcohol_cheat_log', JSON.stringify(log));
+  }
+
   scheduleCloudSync();
   showFeedback(entry);
 }
@@ -2432,10 +2494,8 @@ async function analyzeVoiceFood(description) {
     const prompt = `Ты диетолог-помощник для детей. Пользователь описал еду голосом: "${description}".
 Оцени БЖУ и калории для стандартной порции.
 Ответь ТОЛЬКО JSON без markdown:
-{"dish_name":"название на русском","portion":"примерная порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 дружелюбных предложения","question":"уточняющий вопрос если нужно","is_alcohol":true/false,"is_cheatmeal":true/false}
+{"dish_name":"название на русском","portion":"примерная порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 дружелюбных предложения","question":"уточняющий вопрос если нужно"}
 
-is_alcohol=true если это алкогольный напиток (пиво, вино, коктейль, виски, водка и т.д.).
-is_cheatmeal=true если еда явно вредная (фастфуд, торт, чипсы, газировка) — health_color должен быть red.
 Правила health_color: green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки, молочные. yellow — крупы, картофель, выпечка, полуфабрикаты. red — конфеты, фастфуд, газировка, чипсы, алкоголь.`;
 
     const text = await geminiRequest(prompt);
@@ -3527,6 +3587,27 @@ async function saveEntry() {
 
   S.lastSavedEntry = entry;
 
+  // Save alcohol record if checkbox checked
+  if ($('confirm-alcohol-cb')?.checked) {
+    const alcTypeNames = {beer:'Пиво',wine:'Вино',spirits:'Крепкий алкоголь',cocktail:'Коктейль',other:'Алкоголь'};
+    const alcTypeVal = $('alc-type')?.value || 'other';
+    const alcName = alcTypeNames[alcTypeVal] || 'Алкоголь';
+    const alcAmount = ($('alc-amount')?.value || '').trim() || '—';
+    const alcStrength = $('alc-strength')?.value || 'light';
+    const log = getAlcoholCheatLog();
+    log.push({
+      id: entry.id + 0.5,
+      date: entry.date,
+      time: entry.time,
+      type: 'alcohol',
+      name: alcName,
+      alcType: alcTypeVal,
+      strength: alcStrength,
+      amount: alcAmount
+    });
+    localStorage.setItem('alcohol_cheat_log', JSON.stringify(log));
+  }
+
   scheduleCloudSync();
   showFeedback(entry);
 }
@@ -3943,7 +4024,7 @@ function setStatsPeriod(p) { _statsPeriod = p; renderStats(); }
 function renderDeficitWeightChart(days, norm) {
   if (days.length < 2) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Недостаточно данных</div>';
 
-  const W = 320, H = 160;
+  const W = 320, H = 180;
   const pad = { t: 18, b: 24, l: 36, r: 36 };
   const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
   const n = days.length;
@@ -3963,48 +4044,44 @@ function renderDeficitWeightChart(days, norm) {
     minW = Math.min(...wv) - 0.5; maxW = Math.max(...wv) + 0.5; wR = maxW - minW || 1;
   }
 
-  const x = i => pad.l + (n > 1 ? i / (n - 1) * cW : cW / 2);
+  const barW = Math.max(Math.min(cW / n * 0.7, 14), 2);
+  const gap = cW / n;
+  const xC = i => pad.l + gap * i + gap / 2;
   const yB = v => pad.t + cH / 2 - (v / maxAbs) * (cH / 2);
   const yW = kg => pad.t + cH - ((kg - minW) / wR) * cH;
   const zero = yB(0);
 
-  // Balance line + area
-  const pts = days.map((d, i) => `${x(i).toFixed(1)},${yB(d.balance).toFixed(1)}`);
-  const linePath = 'M ' + pts.join(' L ');
-  const areaPath = linePath + ` L ${x(n-1).toFixed(1)},${zero} L ${x(0).toFixed(1)},${zero} Z`;
-
-  // Split area into surplus/deficit for coloring
-  // Simple approach: one area with gradient
-  const surplusPts = [], deficitPts = [];
-  days.forEach((d, i) => {
-    if (d.balance >= 0) surplusPts.push(`${x(i).toFixed(1)},${yB(d.balance).toFixed(1)}`);
-    if (d.balance <= 0) deficitPts.push(`${x(i).toFixed(1)},${yB(d.balance).toFixed(1)}`);
-  });
+  // Bars
+  const bars = days.map((d, i) => {
+    const cx = xC(i);
+    const bVal = d.balance;
+    const top = bVal >= 0 ? yB(bVal) : zero;
+    const bot = bVal >= 0 ? zero : yB(bVal);
+    const h = Math.max(bot - top, 0.5);
+    const cl = bVal <= 0 ? 'var(--healthy)' : (bVal > norm * 0.2 ? 'var(--unhealthy)' : 'var(--moderate)');
+    return `<rect x="${(cx - barW/2).toFixed(1)}" y="${top.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="${cl}" fill-opacity="0.75"/>`;
+  }).join('');
 
   // Weight line
   let wLine = '';
+  const wDots = [];
   if (hasW) {
     const wp = [];
-    days.forEach((d, i) => { if (dw[i] !== null) wp.push(`${x(i).toFixed(1)},${yW(dw[i]).toFixed(1)}`); });
-    if (wp.length >= 2) wLine = `<path d="M ${wp.join(' L ')}" fill="none" stroke="#9B59B6" stroke-width="2" stroke-dasharray="5,3" stroke-linecap="round"/>`;
+    days.forEach((d, i) => {
+      if (dw[i] !== null) {
+        wp.push(`${xC(i).toFixed(1)},${yW(dw[i]).toFixed(1)}`);
+        wDots.push(`<circle cx="${xC(i).toFixed(1)}" cy="${yW(dw[i]).toFixed(1)}" r="2.5" fill="#9B59B6" stroke="white" stroke-width="0.8"/>`);
+      }
+    });
+    if (wp.length >= 2) wLine = `<path d="M ${wp.join(' L ')}" fill="none" stroke="#9B59B6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`;
   }
-
-  // Dots
-  const dots = days.map((d, i) => {
-    const cl = d.balance <= 0 ? 'var(--healthy)' : (d.balance > norm * 0.2 ? 'var(--unhealthy)' : 'var(--moderate)');
-    return `<circle cx="${x(i).toFixed(1)}" cy="${yB(d.balance).toFixed(1)}" r="${n > 20 ? 2 : 3}" fill="${cl}" stroke="white" stroke-width="0.8"/>`;
-  }).join('');
-  const wDots = hasW ? days.map((d, i) => {
-    if (dw[i] === null) return '';
-    return `<circle cx="${x(i).toFixed(1)}" cy="${yW(dw[i]).toFixed(1)}" r="2.5" fill="#9B59B6" stroke="white" stroke-width="0.8"/>`;
-  }).join('') : '';
 
   // X labels
   const le = n <= 7 ? 1 : n <= 14 ? 2 : n <= 30 ? 5 : 7;
   const MON = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
   const xLabels = days.map((d, i) => {
     if (i % le !== 0 && i !== n - 1) return '';
-    return `<text x="${x(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="8" fill="var(--text-muted)" font-weight="${d.isToday ? 800 : 400}">${d.date.getDate()}${n <= 14 ? ' ' + MON[d.date.getMonth()] : ''}</text>`;
+    return `<text x="${xC(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="8" fill="var(--text-muted)" font-weight="${d.isToday ? 800 : 400}">${d.date.getDate()}${n <= 14 ? ' ' + MON[d.date.getMonth()] : ''}</text>`;
   }).join('');
 
   // Y labels
@@ -4025,31 +4102,37 @@ function renderDeficitWeightChart(days, norm) {
     const cl = checklist[fmtDate(nextD)];
     if (!cl) return '';
     const bad = [cl.sleep, cl.energy, cl.wellbeing].filter(v => v && v <= 2).length;
-    if (bad >= 2) return `<text x="${x(i).toFixed(1)}" y="${pad.t - 3}" text-anchor="middle" font-size="8">⚠️</text>`;
+    if (bad >= 2) return `<text x="${xC(i).toFixed(1)}" y="${pad.t - 3}" text-anchor="middle" font-size="8">⚠️</text>`;
     const hasAlc = alcLog.some(a => a.date === d.dateStr && a.type === 'alcohol');
-    if ((hasAlc || d.items.some(e => e.isCheatmeal)) && bad >= 1) return `<text x="${x(i).toFixed(1)}" y="${pad.t - 3}" text-anchor="middle" font-size="7">😕</text>`;
+    if ((hasAlc || d.items.some(e => e.isCheatmeal)) && bad >= 1) return `<text x="${xC(i).toFixed(1)}" y="${pad.t - 3}" text-anchor="middle" font-size="7">😕</text>`;
     return '';
   }).join('');
 
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;max-height:220px">
+  // Legend
+  const legend = `<g transform="translate(${pad.l},${H - 2})">
+    <rect x="0" y="-6" width="6" height="6" rx="1" fill="var(--healthy)" fill-opacity="0.75"/><text x="8" y="0" font-size="6.5" fill="var(--text-muted)">дефицит</text>
+    <rect x="42" y="-6" width="6" height="6" rx="1" fill="var(--unhealthy)" fill-opacity="0.75"/><text x="50" y="0" font-size="6.5" fill="var(--text-muted)">профицит</text>
+    ${hasW ? '<line x1="90" y1="-3" x2="104" y2="-3" stroke="#9B59B6" stroke-width="2"/><text x="107" y="0" font-size="6.5" fill="#9B59B6">вес</text>' : ''}
+  </g>`;
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;max-height:240px">
     <defs>
       <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="var(--unhealthy)" stop-opacity="0.08"/>
+        <stop offset="0%" stop-color="var(--unhealthy)" stop-opacity="0.06"/>
         <stop offset="50%" stop-color="white" stop-opacity="0"/>
-        <stop offset="100%" stop-color="var(--healthy)" stop-opacity="0.08"/>
+        <stop offset="100%" stop-color="var(--healthy)" stop-opacity="0.06"/>
       </linearGradient>
     </defs>
     <rect x="${pad.l}" y="${pad.t}" width="${cW}" height="${cH}" fill="url(#bgGrad)" rx="4"/>
     <line x1="${pad.l}" y1="${zero}" x2="${pad.l + cW}" y2="${zero}" stroke="var(--border)" stroke-width="0.7" stroke-dasharray="4,3"/>
-    <path d="${areaPath}" fill="var(--healthy)" fill-opacity="0.15"/>
-    <path d="${linePath}" fill="none" stroke="var(--primary)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    ${bars}
     ${wLine}
-    ${dots}
-    ${wDots}
+    ${wDots.join('')}
     ${xLabels}
     ${yLabels}
     ${wLabels}
     ${impactMarkers}
+    ${legend}
   </svg>`;
 }
 
@@ -4192,7 +4275,7 @@ function renderStats() {
     <div class="card">
       <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🏃 Активность за ${periodLabel}</h3>
       ${(() => {
-        const actDays = days.filter(d => d.actBurn > 0);
+        const actDays = days.filter(d => d.actBurn > 0).reverse();
         const totalActBurned = actDays.reduce((s, d) => s + d.actBurn, 0);
         if (!totalActBurned) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Нет записей об активности</div>';
         const maxB = Math.max(...actDays.map(d => d.actBurn), 1);
