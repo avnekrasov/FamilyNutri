@@ -2030,7 +2030,9 @@ async function analyzeFood(imgDataUrl, userDescription) {
   "health_color": "green" или "yellow" или "red",
   "health_comment": "2-3 предложения о пользе или вреде",
   "question": "уточняющий вопрос если нужно",
-  "components": [{"name":"компонент","cal":число,"flag":"main/drink/addon"}]
+  "components": [{"name":"компонент","cal":число,"flag":"main/drink/addon"}],
+  "is_alcohol": true/false,
+  "is_cheatmeal": true/false
 }
 
 ВАЖНО:
@@ -2041,11 +2043,13 @@ async function analyzeFood(imgDataUrl, userDescription) {
   flag "addon" = добавка/топпинг (сметана, авокадо, сыр, соус, масло)
 - dish_name = только основное блюдо, без напитков
 - calories/proteins/fats/carbs = СУММА всех компонентов
+- is_alcohol = true если на фото или в описании есть ЛЮБОЙ алкогольный напиток (пиво, вино, коктейль, виски, водка, шампанское, ликёр и т.д.)
+- is_cheatmeal = true если еда явно вредная (фастфуд, торт, чипсы, жирная жареная еда, сладости, газировка) — health_color должен быть "red"
 
 Правила health_color:
 green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки
 yellow — крупы, картофель, умеренно обработанные, выпечка
-red — конфеты, торты, газировка, чипсы, фастфуд, жареное`;
+red — конфеты, торты, газировка, чипсы, фастфуд, жареное, алкоголь
 
   const text = await geminiRequest(prompt, imgDataUrl);
   return parseAIJson(text);
@@ -2192,6 +2196,12 @@ function fillConfirmScreen(r, imgData) {
   // Reset hunger/enjoyment to defaults
   if ($('confirm-hunger')) $('confirm-hunger').value = '3';
   if ($('confirm-enjoy'))  $('confirm-enjoy').value = '3';
+
+  // Auto-check cheatmeal if AI detected unhealthy food
+  const cheatCb = $('confirm-cheatmeal');
+  if (cheatCb) {
+    cheatCb.checked = !!(r.is_cheatmeal || r.health_color === 'red');
+  }
 }
 
 function speakConfirm() {
@@ -2374,6 +2384,24 @@ async function autoSaveFromConfirm() {
   }
 
   S.lastSavedEntry = entry;
+
+  // Auto-log alcohol if AI detected it
+  if (r.is_alcohol) {
+    const alcDrinks = (r.components || []).filter(c => c.flag === 'drink').map(c => c.name);
+    const alcName = alcDrinks.length ? alcDrinks.join(', ') : r.dish_name;
+    const log = getAlcoholCheatLog();
+    log.push({
+      id: Date.now() + 1,
+      date: entry.date,
+      time: entry.time,
+      type: 'alcohol',
+      name: alcName,
+      amount: r.portion || '—',
+    });
+    localStorage.setItem('alcohol_cheat_log', JSON.stringify(log));
+    toast('🍷 Алкоголь записан автоматически');
+  }
+
   scheduleCloudSync();
   showFeedback(entry);
 }
@@ -2929,7 +2957,7 @@ const CHECKLIST_QUESTIONS = [
   { key: 'energy',    icon: '⚡', label: 'Энергия',      emojis: ['🪫','😩','😐','💪','⚡'] },
   { key: 'mood',      icon: '😊', label: 'Настроение',   emojis: ['😞','😕','😐','🙂','😊'] },
   { key: 'wellbeing', icon: '🏥', label: 'Самочувствие', emojis: ['🤒','😣','😐','🙂','💚'] },
-  { key: 'stress',    icon: '😰', label: 'Стресс',       emojis: ['😱','😰','😐','🙂','😌'] },
+  { key: 'stress',    icon: '😰', label: 'Стресс',       emojis: ['😌','🙂','😐','😰','😱'], inverted: true },
 ];
 
 let _checklistDraft = {};
@@ -3129,6 +3157,7 @@ function renderAlcoholCheatCard() {
     if (todayCheck.sleep <= 2) badMetrics.push(`сон ${todayCheck.sleep}/5`);
     if (todayCheck.energy <= 2) badMetrics.push(`энергия ${todayCheck.energy}/5`);
     if (todayCheck.wellbeing <= 2) badMetrics.push(`самочувствие ${todayCheck.wellbeing}/5`);
+    if (todayCheck.stress >= 4) badMetrics.push(`стресс ${todayCheck.stress}/5`);
     if (badMetrics.length) {
       warning = `<div style="margin-top:8px;padding:8px 10px;background:#FDEDEC;border-radius:8px;font-size:12px;color:#C0392B">⚠️ Вчера был алкоголь — возможно повлиял: ${badMetrics.join(', ')}</div>`;
     }
@@ -3238,7 +3267,7 @@ function buildWellnessContext() {
   // Morning checklist
   const cl = getTodayChecklist();
   if (cl) {
-    const labels = { sleep: 'Сон', energy: 'Энергия', mood: 'Настроение', wellbeing: 'Самочувствие', stress: 'Стресс' };
+    const labels = { sleep: 'Сон', energy: 'Энергия', mood: 'Настроение', wellbeing: 'Самочувствие', stress: 'Стресс (1=мало, 5=много)' };
     lines.push('Утренний чеклист сегодня: ' + Object.entries(labels).map(([k, l]) => `${l} ${cl[k] || '?'}/5`).join(', '));
     if (cl.comment) {
       lines.push('ВАЖНО — Комментарий пользователя к утреннему чеклисту: "' + cl.comment + '"');
@@ -3302,7 +3331,7 @@ async function fetchAIAdvice(t, burned, actOnly, hash) {
 ${wellness ? '\n' + wellness : ''}
 
 Если пользователь оставил комментарий в утреннем чеклисте — это САМОЕ ВАЖНОЕ для рекомендаций. Учитывай его в первую очередь.
-Учитывай утреннее самочувствие: если плохой сон — рекомендуй энергетические продукты и лёгкие блюда; если стресс высокий — антистресс-продукты (магний, омега-3, тёмный шоколад); если вчера был алкоголь — восстановительные продукты (вода, электролиты, лёгкая еда).
+Учитывай утреннее самочувствие: если плохой сон — рекомендуй энергетические продукты и лёгкие блюда; если стресс высокий (4-5 из 5) — антистресс-продукты (магний, омега-3, тёмный шоколад); если вчера был алкоголь — восстановительные продукты (вода, электролиты, лёгкая еда). Шкала стресса: 1=мало стресса (хорошо), 5=много стресса (плохо).
 Учитывай цели здоровья пользователя в рекомендациях.
 Цель: быть в дефиците или балансе калорий. Порекомендуй конкретные блюда и активности. Говори на "ты", дружелюбно. Используй эмодзи. Только текст, без JSON/markdown.`;
 
@@ -3439,6 +3468,25 @@ async function saveEntry() {
   }
 
   S.lastSavedEntry = entry;
+
+  // Auto-log alcohol if AI detected it
+  const ar = S.analysisResult;
+  if (ar && ar.is_alcohol) {
+    const alcDrinks = (ar.components || []).filter(c => c.flag === 'drink').map(c => c.name);
+    const alcName = alcDrinks.length ? alcDrinks.join(', ') : entry.dishName;
+    const alcLog = getAlcoholCheatLog();
+    alcLog.push({
+      id: Date.now() + 1,
+      date: entry.date,
+      time: entry.time,
+      type: 'alcohol',
+      name: alcName,
+      amount: ar.portion || '—',
+    });
+    localStorage.setItem('alcohol_cheat_log', JSON.stringify(alcLog));
+    toast('🍷 Алкоголь записан автоматически');
+  }
+
   scheduleCloudSync();
   showFeedback(entry);
 }
@@ -3819,6 +3867,26 @@ function renderStats() {
 
   const MON = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
 
+  // ── Accent: detect days that led to poor next-day wellbeing ──
+  const checklist = getMorningChecklist();
+  const alcLog = getAlcoholCheatLog();
+  function dayImpactBad(dayDate) {
+    // Check if NEXT day's checklist shows poor wellbeing
+    const nextD = new Date(dayDate); nextD.setDate(nextD.getDate() + 1);
+    const nextStr = fmtDate(nextD);
+    const cl = checklist[nextStr];
+    if (!cl) return null;
+    // Stress is inverted (high value = low stress = good)
+    const stressNorm = cl.stress ? (6 - cl.stress) : 0;
+    const metrics = [cl.sleep || 0, cl.energy || 0, cl.wellbeing || 0];
+    const bad = metrics.filter(v => v <= 2);
+    if (bad.length >= 2) return 'bad'; // 2+ poor metrics → bad day
+    const hasAlc = alcLog.some(a => a.date === fmtDate(dayDate) && a.type === 'alcohol');
+    const hasCheat = all.some(e => e.date === fmtDate(dayDate) && e.isCheatmeal);
+    if ((hasAlc || hasCheat) && bad.length >= 1) return 'warn';
+    return null;
+  }
+
   // ── Deficit/Surplus chart (MAIN) ──
   const maxAbs = Math.max(...days.map(d => Math.abs(d.balance)), 1);
   const deficitChart = days.map(d => {
@@ -3828,8 +3896,11 @@ function renderStats() {
     const color = isDeficit ? 'var(--healthy)' : (d.balance > norm * 0.2 ? 'var(--unhealthy)' : 'var(--moderate)');
     const sign = d.balance > 0 ? '+' : '';
     const val = d.t.cal > 0 ? sign + d.balance : '—';
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <div style="width:45px;font-size:12px;font-weight:${d.isToday ? 800 : 400};color:var(--text);text-align:right;flex-shrink:0">${label}</div>
+    const impact = d.isToday ? null : dayImpactBad(d.date);
+    const impactIcon = impact === 'bad' ? ' ⚠️' : impact === 'warn' ? ' 😕' : '';
+    const rowBg = impact === 'bad' ? 'background:#FFF0F0;border-radius:8px;padding:2px 4px;margin:-2px -4px;' : impact === 'warn' ? 'background:#FFF8E1;border-radius:8px;padding:2px 4px;margin:-2px -4px;' : '';
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;${rowBg}">
+      <div style="width:55px;font-size:12px;font-weight:${d.isToday ? 800 : 400};color:var(--text);text-align:right;flex-shrink:0">${label}${impactIcon}</div>
       <div style="flex:1;height:22px;border-radius:6px;background:var(--bg);position:relative;overflow:hidden">
         <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border);z-index:1"></div>
         ${d.t.cal > 0 ? (isDeficit
@@ -3848,7 +3919,7 @@ function renderStats() {
         Баланс = Съедено − Сожжено (BMR + активность).
         <span style="color:var(--healthy)">● Дефицит</span> ·
         <span style="color:var(--unhealthy)">● Профицит</span> ·
-        Пунктир — норма ${norm} ккал
+        ⚠️ Плохое самочувствие на следующий день
       </div>
       ${deficitChart}
       <div style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
@@ -3990,7 +4061,8 @@ function renderAlcoholStatsBlock(MON) {
     const curDate = d30[i];
     const cl = checklist[curDate];
     if (!cl) continue;
-    const avg = ((cl.sleep || 0) + (cl.energy || 0) + (cl.mood || 0) + (cl.wellbeing || 0)) / 4;
+    const stressInv = cl.stress ? (6 - cl.stress) : 0; // invert: 1(low stress)→5, 5(high)→1
+    const avg = ((cl.sleep || 0) + (cl.energy || 0) + (cl.mood || 0) + (cl.wellbeing || 0) + stressInv) / 5;
     if (alcLog.some(a => a.date === prevDate && a.type === 'alcohol')) {
       afterAlcScores.push(avg);
     } else {
