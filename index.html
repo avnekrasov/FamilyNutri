@@ -1134,7 +1134,7 @@ body {
 <div id="screen-stats" class="screen">
   <div class="header">
     <h1>📊 Статистика</h1>
-    <div class="subtitle">За последние 7 дней</div>
+    <div class="subtitle" id="stats-subtitle">За последние 7 дней</div>
   </div>
 
   <div class="content padded-bottom" id="stats-content"></div>
@@ -1390,6 +1390,7 @@ function init() {
   // Background checks
   updateApiCounterUI();
   checkGoogleAccess().catch(() => {});
+  retroDetectAlcoholAndCheatmeals();
 }
 
 // ──────────────────────────────────────────
@@ -2292,7 +2293,7 @@ async function reanalyzeWithHint(hint) {
     const prevName = S.analysisResult?.dish_name || '';
     const prompt = `Пользователь уточнил что на самом деле это: "${hint}"${prevName ? `. Ранее ты определил как "${prevName}".` : ''}
 Проанализируй это блюдо как диетолог-помощник.
-Ответь ТОЛЬКО JSON: {"dish_name":"название на русском","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения","question":"вопрос если нужно"}`;
+Ответь ТОЛЬКО JSON: {"dish_name":"название на русском","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения","question":"вопрос если нужно","is_alcohol":true/false,"is_cheatmeal":true/false}`;
 
     const text = await geminiRequest(prompt, S.capturedImg);
     const result = parseAIJson(text);
@@ -2317,10 +2318,10 @@ async function reanalyzeEdited() {
       ? `Посмотри на это фото еды. Пользователь уточнил, что это: "${name}".
 Используя ФОТО и описание пользователя вместе, точно рассчитай КБЖУ (калории, белки, жиры и углеводы).
 Оцени размер порции по фото. Обязательно укажи ненулевые значения для ВСЕХ полей (calories, proteins, fats, carbs).
-Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":""}`
+Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":"","is_alcohol":true/false,"is_cheatmeal":true/false}`
       : `Пользователь сообщил что это блюдо: "${name}".
 Рассчитай КБЖУ и оцени полезность как диетолог. Обязательно укажи ненулевые значения для calories, proteins, fats, carbs.
-Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":""}`;
+Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":"","is_alcohol":true/false,"is_cheatmeal":true/false}`;
     const text = await geminiRequest(prompt, hasPhoto ? S.capturedImg : null);
     const result = parseAIJson(text);
     S.analysisResult = result;
@@ -2441,9 +2442,11 @@ async function analyzeVoiceFood(description) {
     const prompt = `Ты диетолог-помощник для детей. Пользователь описал еду голосом: "${description}".
 Оцени БЖУ и калории для стандартной порции.
 Ответь ТОЛЬКО JSON без markdown:
-{"dish_name":"название на русском","portion":"примерная порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 дружелюбных предложения","question":"уточняющий вопрос если нужно"}
+{"dish_name":"название на русском","portion":"примерная порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 дружелюбных предложения","question":"уточняющий вопрос если нужно","is_alcohol":true/false,"is_cheatmeal":true/false}
 
-Правила health_color: green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки, молочные. yellow — крупы, картофель, выпечка, полуфабрикаты. red — конфеты, фастфуд, газировка, чипсы.`;
+is_alcohol=true если это алкогольный напиток (пиво, вино, коктейль, виски, водка и т.д.).
+is_cheatmeal=true если еда явно вредная (фастфуд, торт, чипсы, газировка) — health_color должен быть red.
+Правила health_color: green — овощи, фрукты, бобовые, цельнозерновые, нежирные белки, молочные. yellow — крупы, картофель, выпечка, полуфабрикаты. red — конфеты, фастфуд, газировка, чипсы, алкоголь.`;
 
     const text = await geminiRequest(prompt);
     const result = parseAIJson(text);
@@ -2850,6 +2853,81 @@ function getAlcoholCheatLog() {
   catch { return []; }
 }
 
+// ── Retroactive detection of alcohol & cheatmeals from existing entries ──
+const ALC_KEYWORDS = ['пиво','пивом','пивко','пивас','вино','вином','винишко','вина',
+  'водка','водки','водкой','виски','коньяк','коньяком','коньяка',
+  'шампанское','шампанским','просекко','ром','ромом','текила','текилой',
+  'джин','ликёр','ликер','абсент','мартини','бренди','самогон',
+  'коктейль','мохито','дайкири','маргарита','негрони','апероль',
+  'глинтвейн','сидр','эль','стаут','портвейн','кагор','настойка',
+  'алкоголь','бухло','выпивка','пунш','сангрия','саке'];
+
+const CHEAT_KEYWORDS = ['бургер','гамбургер','чизбургер','биг мак','биг-мак',
+  'пицца','наггетс','картошка фри','фри','чипсы','начос',
+  'хот-дог','хотдог','шаурма','шаверма','донер','дёнер',
+  'торт','тортик','пирожное','эклер','конфеты','шоколадка',
+  'мороженое','пломбир','газировка','кола','фанта','спрайт','пепси',
+  'энергетик','red bull','monster','доширак','роллтон','лапша быстрого'];
+
+function _matchKW(text, kws) {
+  if (!text) return false;
+  const l = text.toLowerCase();
+  return kws.some(k => l.includes(k));
+}
+
+function retroDetectAlcoholAndCheatmeals() {
+  const entries = getEntries();
+  const log = getAlcoholCheatLog();
+  const existingKeys = new Set(log.map(a => a.date + '|' + (a.name || '').toLowerCase()));
+  let alcAdded = 0, cheatFixed = 0;
+
+  for (const e of entries) {
+    // ── Alcohol detection by keywords ──
+    let alcName = '';
+    if (_matchKW(e.dishName, ALC_KEYWORDS)) {
+      alcName = e.dishName;
+    } else if (e.components && e.components.length) {
+      const found = e.components.find(c => _matchKW(c.name, ALC_KEYWORDS));
+      if (found) alcName = found.name;
+    }
+    if (alcName) {
+      const key = e.date + '|' + alcName.toLowerCase();
+      if (!existingKeys.has(key)) {
+        log.push({
+          id: e.id + 0.1,
+          date: e.date,
+          time: e.time || '12:00',
+          type: 'alcohol',
+          name: alcName,
+          amount: e.portion || '—',
+          retroDetected: true
+        });
+        existingKeys.add(key);
+        alcAdded++;
+      }
+    }
+
+    // ── Cheatmeal detection by heuristics ──
+    if (!e.isCheatmeal) {
+      if (e.healthColor === 'red' ||
+          (e.healthScore && e.healthScore <= 3 && (e.calories || 0) > 400) ||
+          _matchKW(e.dishName, CHEAT_KEYWORDS) ||
+          (e.components || []).some(c => _matchKW(c.name, CHEAT_KEYWORDS))) {
+        e.isCheatmeal = true;
+        cheatFixed++;
+      }
+    }
+  }
+
+  if (cheatFixed > 0) {
+    try { localStorage.setItem('diary_entries', JSON.stringify(entries)); } catch {}
+  }
+  if (alcAdded > 0) {
+    localStorage.setItem('alcohol_cheat_log', JSON.stringify(log));
+  }
+  return alcAdded;
+}
+
 function saveWeight(dateOverride) {
   const input = $('weight-today-input');
   const val = parseFloat(input.value);
@@ -3188,6 +3266,7 @@ function renderAlcoholCheatCard() {
 let _lastAIAdvice = '';
 let _lastAIAdviceHash = '';
 let _lastAIAdviceTime = 0;
+let _statsPeriod = 7;
 let _aiAdviceInFlight = false;
 
 function refreshAIAdvice(t, burned, actOnly) {
@@ -3826,25 +3905,163 @@ function deleteEntry(id) {
 // ──────────────────────────────────────────
 // STATS SCREEN
 // ──────────────────────────────────────────
+function setStatsPeriod(p) { _statsPeriod = p; renderStats(); }
+
+function renderDeficitWeightChart(days, norm) {
+  if (days.length < 2) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Недостаточно данных</div>';
+
+  const W = 320, H = 160;
+  const pad = { t: 18, b: 24, l: 36, r: 36 };
+  const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
+  const n = days.length;
+
+  // Balance data
+  const bals = days.map(d => d.balance);
+  const maxAbs = Math.max(Math.abs(Math.min(...bals)), Math.abs(Math.max(...bals)), 100);
+
+  // Weight data
+  const wh = getWeightHistory();
+  const wMap = {}; wh.forEach(w => { wMap[w.date] = w.kg; });
+  const dw = days.map(d => wMap[d.dateStr] || null);
+  const hasW = dw.some(w => w !== null);
+  let minW = 0, maxW = 1, wR = 1;
+  if (hasW) {
+    const wv = dw.filter(w => w !== null);
+    minW = Math.min(...wv) - 0.5; maxW = Math.max(...wv) + 0.5; wR = maxW - minW || 1;
+  }
+
+  const x = i => pad.l + (n > 1 ? i / (n - 1) * cW : cW / 2);
+  const yB = v => pad.t + cH / 2 - (v / maxAbs) * (cH / 2);
+  const yW = kg => pad.t + cH - ((kg - minW) / wR) * cH;
+  const zero = yB(0);
+
+  // Balance line + area
+  const pts = days.map((d, i) => `${x(i).toFixed(1)},${yB(d.balance).toFixed(1)}`);
+  const linePath = 'M ' + pts.join(' L ');
+  const areaPath = linePath + ` L ${x(n-1).toFixed(1)},${zero} L ${x(0).toFixed(1)},${zero} Z`;
+
+  // Split area into surplus/deficit for coloring
+  // Simple approach: one area with gradient
+  const surplusPts = [], deficitPts = [];
+  days.forEach((d, i) => {
+    if (d.balance >= 0) surplusPts.push(`${x(i).toFixed(1)},${yB(d.balance).toFixed(1)}`);
+    if (d.balance <= 0) deficitPts.push(`${x(i).toFixed(1)},${yB(d.balance).toFixed(1)}`);
+  });
+
+  // Weight line
+  let wLine = '';
+  if (hasW) {
+    const wp = [];
+    days.forEach((d, i) => { if (dw[i] !== null) wp.push(`${x(i).toFixed(1)},${yW(dw[i]).toFixed(1)}`); });
+    if (wp.length >= 2) wLine = `<path d="M ${wp.join(' L ')}" fill="none" stroke="#9B59B6" stroke-width="2" stroke-dasharray="5,3" stroke-linecap="round"/>`;
+  }
+
+  // Dots
+  const dots = days.map((d, i) => {
+    const cl = d.balance <= 0 ? 'var(--healthy)' : (d.balance > norm * 0.2 ? 'var(--unhealthy)' : 'var(--moderate)');
+    return `<circle cx="${x(i).toFixed(1)}" cy="${yB(d.balance).toFixed(1)}" r="${n > 20 ? 2 : 3}" fill="${cl}" stroke="white" stroke-width="0.8"/>`;
+  }).join('');
+  const wDots = hasW ? days.map((d, i) => {
+    if (dw[i] === null) return '';
+    return `<circle cx="${x(i).toFixed(1)}" cy="${yW(dw[i]).toFixed(1)}" r="2.5" fill="#9B59B6" stroke="white" stroke-width="0.8"/>`;
+  }).join('') : '';
+
+  // X labels
+  const le = n <= 7 ? 1 : n <= 14 ? 2 : n <= 30 ? 5 : 7;
+  const MON = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+  const xLabels = days.map((d, i) => {
+    if (i % le !== 0 && i !== n - 1) return '';
+    return `<text x="${x(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="8" fill="var(--text-muted)" font-weight="${d.isToday ? 800 : 400}">${d.date.getDate()}${n <= 14 ? ' ' + MON[d.date.getMonth()] : ''}</text>`;
+  }).join('');
+
+  // Y labels
+  const yLabels = `
+    <text x="${pad.l - 3}" y="${pad.t + 5}" text-anchor="end" font-size="7" fill="var(--text-muted)">+${maxAbs}</text>
+    <text x="${pad.l - 3}" y="${zero + 3}" text-anchor="end" font-size="7" fill="var(--text-muted)">0</text>
+    <text x="${pad.l - 3}" y="${pad.t + cH + 2}" text-anchor="end" font-size="7" fill="var(--text-muted)">−${maxAbs}</text>`;
+  const wLabels = hasW ? `
+    <text x="${pad.l + cW + 3}" y="${pad.t + 5}" text-anchor="start" font-size="7" fill="#9B59B6">${maxW.toFixed(1)}</text>
+    <text x="${pad.l + cW + 3}" y="${pad.t + cH + 2}" text-anchor="start" font-size="7" fill="#9B59B6">${minW.toFixed(1)}</text>` : '';
+
+  // Impact markers
+  const checklist = getMorningChecklist();
+  const alcLog = getAlcoholCheatLog();
+  const impactMarkers = days.map((d, i) => {
+    if (d.isToday) return '';
+    const nextD = new Date(d.date); nextD.setDate(nextD.getDate() + 1);
+    const cl = checklist[fmtDate(nextD)];
+    if (!cl) return '';
+    const bad = [cl.sleep, cl.energy, cl.wellbeing].filter(v => v && v <= 2).length;
+    if (bad >= 2) return `<text x="${x(i).toFixed(1)}" y="${pad.t - 3}" text-anchor="middle" font-size="8">⚠️</text>`;
+    const hasAlc = alcLog.some(a => a.date === d.dateStr && a.type === 'alcohol');
+    if ((hasAlc || d.items.some(e => e.isCheatmeal)) && bad >= 1) return `<text x="${x(i).toFixed(1)}" y="${pad.t - 3}" text-anchor="middle" font-size="7">😕</text>`;
+    return '';
+  }).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;max-height:220px">
+    <defs>
+      <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--unhealthy)" stop-opacity="0.08"/>
+        <stop offset="50%" stop-color="white" stop-opacity="0"/>
+        <stop offset="100%" stop-color="var(--healthy)" stop-opacity="0.08"/>
+      </linearGradient>
+    </defs>
+    <rect x="${pad.l}" y="${pad.t}" width="${cW}" height="${cH}" fill="url(#bgGrad)" rx="4"/>
+    <line x1="${pad.l}" y1="${zero}" x2="${pad.l + cW}" y2="${zero}" stroke="var(--border)" stroke-width="0.7" stroke-dasharray="4,3"/>
+    <path d="${areaPath}" fill="var(--healthy)" fill-opacity="0.15"/>
+    <path d="${linePath}" fill="none" stroke="var(--primary)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    ${wLine}
+    ${dots}
+    ${wDots}
+    ${xLabels}
+    ${yLabels}
+    ${wLabels}
+    ${impactMarkers}
+  </svg>`;
+}
+
 function renderStats() {
+  retroDetectAlcoholAndCheatmeals();
   const all = getEntries();
   const allActs = getActivities();
   const norm = S.dailyNorms.cal || 2000;
   const bmr  = S.dailyNorms.bmr || 1500;
+  const periodDays = _statsPeriod === 'all' ? null : _statsPeriod;
 
+  // Update subtitle
+  const sub = $('stats-subtitle');
+  if (sub) sub.textContent = periodDays ? `За последние ${periodDays} дней` : 'За всё время';
+
+  // Build days array based on selected period
   const days = [];
-  for (let i = 6; i >= 0; i--) {
-    const d     = new Date(); d.setDate(d.getDate() - i);
-    const items = all.filter(e => e.date === fmtDate(d));
-    const dayActs = allActs.filter(a => a.date === fmtDate(d));
-    const actBurn = dayActs.reduce((s, a) => s + (a.calBurned || 0), 0);
-    const isToday = fmtDate(d) === fmtDate(new Date());
-    // For past days, full BMR; for today, proportional to time
-    const dayBmr = isToday ? Math.round(bmr * (new Date().getHours() * 60 + new Date().getMinutes()) / 1440) : bmr;
-    const totalBurned = actBurn + dayBmr;
-    const t = totals(items);
-    const balance = t.cal - totalBurned; // positive = surplus, negative = deficit
-    days.push({ date: d, items, t, actBurn, dayBmr, totalBurned, balance, isToday });
+  if (periodDays) {
+    for (let i = periodDays - 1; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const dateStr = fmtDate(d);
+      const items = all.filter(e => e.date === dateStr);
+      const dayActs = allActs.filter(a => a.date === dateStr);
+      const actBurn = dayActs.reduce((s, a) => s + (a.calBurned || 0), 0);
+      const isToday = dateStr === fmtDate(new Date());
+      const dayBmr = isToday ? Math.round(bmr * (new Date().getHours() * 60 + new Date().getMinutes()) / 1440) : bmr;
+      const totalBurned = actBurn + dayBmr;
+      const t = totals(items);
+      const balance = t.cal - totalBurned;
+      days.push({ date: d, dateStr, items, t, actBurn, dayBmr, totalBurned, balance, isToday });
+    }
+  } else {
+    const dateSet = new Set([...all.map(e => e.date), ...allActs.map(a => a.date)]);
+    [...dateSet].sort().forEach(dateStr => {
+      const d = new Date(dateStr + 'T12:00:00');
+      const items = all.filter(e => e.date === dateStr);
+      const dayActs = allActs.filter(a => a.date === dateStr);
+      const actBurn = dayActs.reduce((s, a) => s + (a.calBurned || 0), 0);
+      const isToday = dateStr === fmtDate(new Date());
+      const dayBmr = isToday ? Math.round(bmr * (new Date().getHours() * 60 + new Date().getMinutes()) / 1440) : bmr;
+      const totalBurned = actBurn + dayBmr;
+      const t = totals(items);
+      const balance = t.cal - totalBurned;
+      days.push({ date: d, dateStr, items, t, actBurn, dayBmr, totalBurned, balance, isToday });
+    });
   }
 
   const avg    = arr => Math.round(arr.reduce((s, x) => s + x, 0) / arr.length);
@@ -3854,8 +4071,11 @@ function renderStats() {
   const avgC   = avg(days.map(d => d.t.c));
   const avgBalance = avg(days.map(d => d.balance));
 
+  // Quality: filter by period
+  const cutoffDate = periodDays ? fmtDate(new Date(Date.now() - periodDays * 86400000)) : null;
+  const periodEntries = cutoffDate ? all.filter(e => e.date >= cutoffDate) : all;
   let gn = 0, yw = 0, rd = 0;
-  all.slice(-50).forEach(e => {
+  periodEntries.forEach(e => {
     if      (e.healthColor === 'green') gn++;
     else if (e.healthColor === 'red')   rd++;
     else                                yw++;
@@ -3867,61 +4087,25 @@ function renderStats() {
 
   const MON = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
 
-  // ── Accent: detect days that led to poor next-day wellbeing ──
-  const checklist = getMorningChecklist();
-  const alcLog = getAlcoholCheatLog();
-  function dayImpactBad(dayDate) {
-    // Check if NEXT day's checklist shows poor wellbeing
-    const nextD = new Date(dayDate); nextD.setDate(nextD.getDate() + 1);
-    const nextStr = fmtDate(nextD);
-    const cl = checklist[nextStr];
-    if (!cl) return null;
-    // Stress is inverted (high value = low stress = good)
-    const stressNorm = cl.stress ? (6 - cl.stress) : 0;
-    const metrics = [cl.sleep || 0, cl.energy || 0, cl.wellbeing || 0];
-    const bad = metrics.filter(v => v <= 2);
-    if (bad.length >= 2) return 'bad'; // 2+ poor metrics → bad day
-    const hasAlc = alcLog.some(a => a.date === fmtDate(dayDate) && a.type === 'alcohol');
-    const hasCheat = all.some(e => e.date === fmtDate(dayDate) && e.isCheatmeal);
-    if ((hasAlc || hasCheat) && bad.length >= 1) return 'warn';
-    return null;
-  }
-
-  // ── Deficit/Surplus chart (MAIN) ──
-  const maxAbs = Math.max(...days.map(d => Math.abs(d.balance)), 1);
-  const deficitChart = days.map(d => {
-    const label = d.date.getDate() + ' ' + MON[d.date.getMonth()];
-    const pctW = Math.min(Math.round(Math.abs(d.balance) / maxAbs * 100), 100);
-    const isDeficit = d.balance <= 0;
-    const color = isDeficit ? 'var(--healthy)' : (d.balance > norm * 0.2 ? 'var(--unhealthy)' : 'var(--moderate)');
-    const sign = d.balance > 0 ? '+' : '';
-    const val = d.t.cal > 0 ? sign + d.balance : '—';
-    const impact = d.isToday ? null : dayImpactBad(d.date);
-    const impactIcon = impact === 'bad' ? ' ⚠️' : impact === 'warn' ? ' 😕' : '';
-    const rowBg = impact === 'bad' ? 'background:#FFF0F0;border-radius:8px;padding:2px 4px;margin:-2px -4px;' : impact === 'warn' ? 'background:#FFF8E1;border-radius:8px;padding:2px 4px;margin:-2px -4px;' : '';
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;${rowBg}">
-      <div style="width:55px;font-size:12px;font-weight:${d.isToday ? 800 : 400};color:var(--text);text-align:right;flex-shrink:0">${label}${impactIcon}</div>
-      <div style="flex:1;height:22px;border-radius:6px;background:var(--bg);position:relative;overflow:hidden">
-        <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border);z-index:1"></div>
-        ${d.t.cal > 0 ? (isDeficit
-          ? `<div style="position:absolute;right:50%;top:2px;bottom:2px;width:${pctW/2}%;background:${color};border-radius:4px;transition:width 0.3s"></div>`
-          : `<div style="position:absolute;left:50%;top:2px;bottom:2px;width:${pctW/2}%;background:${color};border-radius:4px;transition:width 0.3s"></div>`)
-        : ''}
-      </div>
-      <div style="width:55px;font-size:11px;font-weight:700;color:${d.t.cal > 0 ? color : 'var(--text-muted)'};text-align:right;flex-shrink:0">${val}</div>
-    </div>`;
-  }).join('');
+  const hasWeight = getWeightHistory().some(w => days.some(d => d.dateStr === w.date));
+  const periodLabel = periodDays ? `${periodDays} дней` : 'всё время';
 
   $('stats-content').innerHTML = `
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      ${[[7,'7д'],[14,'14д'],[30,'30д'],['all','Всё']].map(([v,l]) =>
+        `<button onclick="setStatsPeriod(${typeof v==='string'?"'"+v+"'":v})" style="flex:1;padding:8px 0;border-radius:12px;font-size:13px;font-weight:700;border:2px solid ${_statsPeriod==v?'var(--primary)':'var(--border)'};background:${_statsPeriod==v?'#FFF0F0':'var(--card)'};color:${_statsPeriod==v?'var(--primary)':'var(--text)'};cursor:pointer">${l}</button>`
+      ).join('')}
+    </div>
+
     <div class="card">
       <h3 style="font-size:15px;font-weight:800;margin-bottom:6px">📊 Дефицит / Профицит калорий</h3>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">
-        Баланс = Съедено − Сожжено (BMR + активность).
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
         <span style="color:var(--healthy)">● Дефицит</span> ·
-        <span style="color:var(--unhealthy)">● Профицит</span> ·
-        ⚠️ Плохое самочувствие на следующий день
+        <span style="color:var(--unhealthy)">● Профицит</span>
+        ${hasWeight ? ' · <span style="color:#9B59B6">┈ Вес</span>' : ''}
+        · ⚠️ Плохое самочувствие
       </div>
-      ${deficitChart}
+      ${renderDeficitWeightChart(days, norm)}
       <div style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
         <div style="text-align:center;flex:1">
           <div style="font-size:18px;font-weight:800;color:${avgBalance <= 0 ? 'var(--healthy)' : 'var(--unhealthy)'}">${avgBalance > 0 ? '+' : ''}${avgBalance}</div>
@@ -3939,7 +4123,7 @@ function renderStats() {
     </div>
 
     <div class="card">
-      <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🎯 Среднее за 7 дней</h3>
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🎯 Среднее за ${periodLabel}</h3>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
         ${[['⚡','ккал',avgCal],['🥩','Белки',avgP],['🧈','Жиры',avgF],['🍞','Углев',avgC]].map(([ic,l,v]) => `
           <div style="text-align:center;background:var(--bg);border-radius:14px;padding:12px 4px">
@@ -3974,7 +4158,7 @@ function renderStats() {
     </div>
 
     <div class="card">
-      <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🏃 Активность за 7 дней</h3>
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🏃 Активность за ${periodLabel}</h3>
       ${(() => {
         const totalActBurned = days.reduce((s, d) => s + d.actBurn, 0);
         if (!totalActBurned) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Нет записей об активности</div>';
@@ -3994,7 +4178,7 @@ function renderStats() {
       <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">⚖️ Динамика веса</h3>
       ${(() => {
         const wh = getWeightHistory().sort((a, b) => a.date.localeCompare(b.date));
-        const last14 = wh.slice(-14);
+        const last14 = cutoffDate ? wh.filter(w => w.date >= cutoffDate) : wh;
         if (last14.length < 2) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Недостаточно данных (нужно минимум 2 записи)</div>';
         const minW = Math.min(...last14.map(w => w.kg)) - 0.3;
         const maxW = Math.max(...last14.map(w => w.kg)) + 0.3;
