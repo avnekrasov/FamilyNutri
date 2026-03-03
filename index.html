@@ -3689,6 +3689,28 @@ function renderDiary() {
       </div>
     </div>`;
 
+  // Morning checklist for this day
+  const dayChecklist = getMorningChecklist()[dateStr];
+  if (dayChecklist) {
+    const clChips = CHECKLIST_QUESTIONS.map(q => {
+      const v = dayChecklist[q.key] || 0;
+      if (!v) return '';
+      const emoji = q.emojis[v - 1];
+      return `<div style="display:flex;align-items:center;gap:3px;background:var(--bg);padding:4px 8px;border-radius:8px;font-size:12px">
+        <span>${q.icon}</span><span style="font-weight:600">${emoji} ${v}/5</span>
+      </div>`;
+    }).filter(Boolean).join('');
+
+    html += `<div class="card" style="padding:12px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:700">☀️ Самочувствие</div>
+        <button onclick="editDayComment('${dateStr}')" style="background:none;border:none;font-size:14px;cursor:pointer;padding:4px" title="Добавить/изменить комментарий">✏️💬</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${clChips}</div>
+      ${dayChecklist.comment ? `<div style="margin-top:8px;font-size:12px;color:var(--text-muted);font-style:italic;padding:8px;background:var(--bg);border-radius:8px;line-height:1.4">💬 ${esc(dayChecklist.comment)}</div>` : ''}
+    </div>`;
+  }
+
   MEAL_ORDER.forEach(mt => {
     if (!groups[mt]) return;
     html += `<div class="diary-section">
@@ -3790,6 +3812,50 @@ function renderEntry(e, showDel) {
     </div>`;
 }
 
+function editDayComment(dateStr) {
+  const all = getMorningChecklist();
+  const existing = all[dateStr]?.comment || '';
+
+  const overlay = document.createElement('div');
+  overlay.id = 'day-comment-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.innerHTML = `
+    <div style="background:var(--card);border-radius:20px;padding:20px;width:100%;max-width:400px">
+      <h3 style="margin:0 0 14px;font-size:16px">💬 Комментарий за ${dateStr.slice(5).replace('-','.')}</h3>
+      <div style="margin-bottom:14px">
+        <div class="input-with-voice">
+          <textarea id="dc-text" rows="4" placeholder="Что важного произошло в этот день? Как себя чувствовал?"
+            style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:none">${esc(existing)}</textarea>
+          <button class="voice-btn" onclick="voiceToField('dc-text')" title="Голосовой ввод">🎤</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="saveDayComment('${dateStr}')" style="flex:1;padding:14px;border:none;border-radius:12px;background:var(--primary);color:#fff;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer">💾 Сохранить</button>
+        <button onclick="closeDayCommentModal()" style="flex:1;padding:14px;border:2px solid var(--border);border-radius:12px;background:transparent;color:var(--text);font-size:15px;font-family:inherit;cursor:pointer">Отмена</button>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', ev => { if (ev.target === overlay) closeDayCommentModal(); });
+  document.body.appendChild(overlay);
+  // Focus textarea
+  setTimeout(() => { const t = document.getElementById('dc-text'); if (t) t.focus(); }, 100);
+}
+
+function saveDayComment(dateStr) {
+  const all = getMorningChecklist();
+  if (!all[dateStr]) all[dateStr] = {};
+  all[dateStr].comment = (document.getElementById('dc-text')?.value || '').trim();
+  localStorage.setItem('morning_checklist', JSON.stringify(all));
+  closeDayCommentModal();
+  renderDiary();
+  scheduleCloudSync();
+  toast('💬 Комментарий сохранён');
+}
+
+function closeDayCommentModal() {
+  const m = document.getElementById('day-comment-modal');
+  if (m) m.remove();
+}
+
 function editEntry(id) {
   const all = getEntries();
   const e = all.find(x => x.id === id);
@@ -3852,9 +3918,14 @@ function editEntry(id) {
         <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">🍽️ Степень голода</label>
         <select id="ee-hunger" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text)">${hungerOpts}</select>
       </div>
-      <div style="margin-bottom:16px">
+      <div style="margin-bottom:12px">
         <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">😋 Удовольствие от еды</label>
         <select id="ee-enjoy" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text)">${enjoyOpts}</select>
+      </div>
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">💬 Комментарий</label>
+        <textarea id="ee-comment" rows="2" placeholder="Заметки о блюде..."
+          style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:none">${esc(e.userComment || '')}</textarea>
       </div>
       <div style="display:flex;gap:8px">
         <button onclick="saveEditEntry(${id})" style="flex:1;padding:14px;border:none;border-radius:12px;background:var(--primary);color:#fff;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer">💾 Сохранить</button>
@@ -3879,6 +3950,7 @@ function saveEditEntry(id) {
   all[idx].carbs     = parseInt(document.getElementById('ee-c').value) || 0;
   all[idx].hunger    = parseInt(document.getElementById('ee-hunger').value) || 0;
   all[idx].enjoyment = parseInt(document.getElementById('ee-enjoy').value) || 0;
+  all[idx].userComment = (document.getElementById('ee-comment')?.value || '').trim();
 
   ls('diary_entries', JSON.stringify(all));
   closeEditEntry();
@@ -4046,7 +4118,7 @@ function renderStats() {
       const totalBurned = actBurn + dayBmr;
       const t = totals(items);
       const balance = t.cal - totalBurned;
-      days.push({ date: d, dateStr, items, t, actBurn, dayBmr, totalBurned, balance, isToday });
+      days.push({ date: d, dateStr, items, t, actBurn, dayBmr, totalBurned, balance, isToday, dayActs });
     }
   } else {
     const dateSet = new Set([...all.map(e => e.date), ...allActs.map(a => a.date)]);
@@ -4060,7 +4132,7 @@ function renderStats() {
       const totalBurned = actBurn + dayBmr;
       const t = totals(items);
       const balance = t.cal - totalBurned;
-      days.push({ date: d, dateStr, items, t, actBurn, dayBmr, totalBurned, balance, isToday });
+      days.push({ date: d, dateStr, items, t, actBurn, dayBmr, totalBurned, balance, isToday, dayActs });
     });
   }
 
@@ -4166,10 +4238,13 @@ function renderStats() {
         return days.map(d => {
           const pct = d.actBurn > 0 ? Math.max(Math.round(d.actBurn / maxB * 100), 4) : 0;
           const label = d.date.getDate() + ' ' + MON[d.date.getMonth()];
-          return '<div class="stat-bar-wrap"><div class="stat-bar-row">' +
+          const actIcons = d.dayActs ? [...new Set(d.dayActs.map(a => a.label.split(' ')[0]))].join('') : '';
+          return '<div class="stat-bar-wrap"><div class="stat-bar-row" style="align-items:center">' +
             '<div class="stat-bar-label" style="font-weight:' + (d.isToday ? 800 : 400) + '">' + label + '</div>' +
             '<div class="stat-bar-bg"><div class="stat-bar-fill" style="width:' + pct + '%;background:var(--secondary)">' +
-            (d.actBurn > 0 ? '−' + d.actBurn : '') + '</div></div></div></div>';
+            (d.actBurn > 0 ? '−' + d.actBurn : '') + '</div></div>' +
+            (actIcons ? '<div style="font-size:11px;min-width:28px;text-align:right;line-height:1">' + actIcons + '</div>' : '') +
+            '</div></div>';
         }).join('') + '<div style="text-align:center;margin-top:8px;font-size:13px;color:var(--secondary);font-weight:700">Всего сожжено тренировками: ' + totalActBurned + ' ккал</div>';
       })()}
     </div>
@@ -4209,10 +4284,113 @@ function renderStats() {
     ${renderAlcoholStatsBlock(MON)}`;
 }
 
+// ── Alcohol/cheatmeal calendar helpers ──
+function _alcEmoji(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('пиво') || n.includes('пивк') || n.includes('пивас') || n.includes('эль') || n.includes('стаут')) return '🍺';
+  if (n.includes('вино') || n.includes('просекко') || n.includes('шампанск') || n.includes('кагор') || n.includes('портвейн')) return '🍷';
+  if (n.includes('коктейль') || n.includes('мохито') || n.includes('маргарита') || n.includes('дайкири') || n.includes('негрони') || n.includes('апероль')) return '🍸';
+  if (n.includes('водка') || n.includes('виски') || n.includes('коньяк') || n.includes('ром') || n.includes('текила') || n.includes('джин') || n.includes('бренди') || n.includes('самогон') || n.includes('абсент')) return '🥃';
+  if (n.includes('сидр') || n.includes('глинтвейн') || n.includes('пунш') || n.includes('сангрия')) return '🍹';
+  return '🍷';
+}
+function _cheatEmoji(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('пицца')) return '🍕';
+  if (n.includes('бургер') || n.includes('гамбургер') || n.includes('чизбургер') || n.includes('биг мак') || n.includes('биг-мак')) return '🍔';
+  if (n.includes('торт') || n.includes('пирож') || n.includes('эклер')) return '🎂';
+  if (n.includes('мороженое') || n.includes('пломбир')) return '🍦';
+  if (n.includes('шоколад') || n.includes('конфет')) return '🍫';
+  if (n.includes('чипс') || n.includes('начос')) return '🍿';
+  if (n.includes('газировк') || n.includes('кола') || n.includes('пепси') || n.includes('фанта') || n.includes('спрайт') || n.includes('энергетик')) return '🥤';
+  if (n.includes('шаурм') || n.includes('шаверм') || n.includes('донер') || n.includes('дёнер')) return '🌯';
+  if (n.includes('хот-дог') || n.includes('хотдог')) return '🌭';
+  if (n.includes('наггетс') || n.includes('фри')) return '🍟';
+  if (n.includes('доширак') || n.includes('роллтон') || n.includes('лапша')) return '🍜';
+  return '🍟';
+}
+function _isHeavyDrinking(amount) {
+  if (!amount || amount === '—') return false;
+  const n = amount.toLowerCase();
+  const ml = parseInt((n.match(/(\d+)\s*мл/) || [])[1]) || 0;
+  const l = parseFloat((n.match(/([\d.]+)\s*л/) || [])[1]) || 0;
+  const qty = parseInt((n.match(/(\d+)\s*(бокал|стакан|рюмк|стопк|бутыл|банк)/) || [])[1]) || 0;
+  if (ml >= 500 || l >= 0.5) return true;
+  if (qty >= 4) return true;
+  return false;
+}
+function _alcDayColor(dateStr, alcLog, checklist) {
+  const dayAlc = alcLog.filter(a => a.date === dateStr && a.type === 'alcohol');
+  // Check next-day consequences
+  const nextD = new Date(dateStr + 'T12:00:00'); nextD.setDate(nextD.getDate() + 1);
+  const nextCl = checklist[fmtDate(nextD)];
+  if (nextCl) {
+    const bad = [nextCl.sleep, nextCl.energy, nextCl.wellbeing].filter(v => v && v <= 2).length;
+    if (bad >= 2) return '#263238'; // black — consequences
+  }
+  const isHeavy = dayAlc.length >= 3 || dayAlc.some(a => _isHeavyDrinking(a.amount));
+  return isHeavy ? '#FFCDD2' : '#FFF8E1'; // red vs yellow
+}
+function _cheatDayColor(dateStr, entries, allActs, bmr) {
+  const cheatEntries = entries.filter(e => e.date === dateStr && e.isCheatmeal);
+  const maxCheatCal = Math.max(...cheatEntries.map(e => e.calories || 0), 0);
+  // Calculate day balance
+  const dayEntries = entries.filter(e => e.date === dateStr);
+  const dayCal = dayEntries.reduce((s, e) => s + (e.calories || 0), 0);
+  const dayActBurn = allActs.filter(a => a.date === dateStr).reduce((s, a) => s + (a.calBurned || 0), 0);
+  const isDeficit = (dayCal - dayActBurn - (bmr || 1500)) < 0;
+  const isCatastrophic = cheatEntries.some(e => e.healthColor === 'red' && (e.healthScore || 5) <= 2);
+  if (isCatastrophic) return '#FFF3E0'; // yellow — categorically unhealthy
+  if (maxCheatCal < 300 && isDeficit) return '#E8F5E9'; // green
+  return '#FFF3E0'; // yellow
+}
+
+let _alcDetailDate = '';
+function showAlcDayDetail(dateStr) {
+  if (_alcDetailDate === dateStr) { _alcDetailDate = ''; const el = document.getElementById('alc-day-detail'); if (el) el.innerHTML = ''; return; }
+  _alcDetailDate = dateStr;
+  const alcLog = getAlcoholCheatLog();
+  const entries = getEntries();
+  const dayAlc = alcLog.filter(a => a.date === dateStr && a.type === 'alcohol');
+  const dayCheat = entries.filter(e => e.date === dateStr && e.isCheatmeal);
+  if (!dayAlc.length && !dayCheat.length) return;
+
+  let html = `<div style="padding:10px;background:var(--bg);border-radius:12px;margin-top:8px;font-size:12px">
+    <div style="font-weight:700;margin-bottom:6px">📅 ${dateStr.slice(5).replace('-','.')}</div>`;
+  if (dayAlc.length) {
+    html += '<div style="margin-bottom:4px;font-weight:600">🍷 Алкоголь:</div>';
+    dayAlc.forEach(a => {
+      html += `<div style="padding:2px 0">${_alcEmoji(a.name)} ${esc(a.name)}${a.amount && a.amount !== '—' ? ' <span style="color:var(--text-muted)">(' + esc(a.amount) + ')</span>' : ''}</div>`;
+    });
+  }
+  if (dayCheat.length) {
+    html += '<div style="margin-bottom:4px;margin-top:4px;font-weight:600">🍔 Читмилы:</div>';
+    dayCheat.forEach(e => {
+      html += `<div style="padding:2px 0">${_cheatEmoji(e.dishName)} ${esc(e.dishName)} — ${e.calories || 0} ккал</div>`;
+    });
+  }
+  // Next-day checklist if alcohol
+  if (dayAlc.length) {
+    const nextD = new Date(dateStr + 'T12:00:00'); nextD.setDate(nextD.getDate() + 1);
+    const nextCl = getMorningChecklist()[fmtDate(nextD)];
+    if (nextCl) {
+      html += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-size:11px">
+        Утро после: 😴${nextCl.sleep||'?'} ⚡${nextCl.energy||'?'} 😊${nextCl.mood||'?'} 🏥${nextCl.wellbeing||'?'} 😰${nextCl.stress||'?'}
+        ${nextCl.comment ? '<div style="font-style:italic;margin-top:3px;color:var(--text-muted)">💬 ' + esc(nextCl.comment) + '</div>' : ''}
+      </div>`;
+    }
+  }
+  html += '</div>';
+  const el = document.getElementById('alc-day-detail');
+  if (el) el.innerHTML = html;
+}
+
 function renderAlcoholStatsBlock(MON) {
   const alcLog = getAlcoholCheatLog();
   const allEntries = getEntries();
+  const allActs = getActivities();
   const checklist = getMorningChecklist();
+  const bmr = S.dailyNorms.bmr || 1500;
   const now = new Date();
 
   // Last 30 days
@@ -4245,7 +4423,7 @@ function renderAlcoholStatsBlock(MON) {
     const curDate = d30[i];
     const cl = checklist[curDate];
     if (!cl) continue;
-    const stressInv = cl.stress ? (6 - cl.stress) : 0; // invert: 1(low stress)→5, 5(high)→1
+    const stressInv = cl.stress ? (6 - cl.stress) : 0;
     const avg = ((cl.sleep || 0) + (cl.energy || 0) + (cl.mood || 0) + (cl.wellbeing || 0) + stressInv) / 5;
     if (alcLog.some(a => a.date === prevDate && a.type === 'alcohol')) {
       afterAlcScores.push(avg);
@@ -4257,17 +4435,48 @@ function renderAlcoholStatsBlock(MON) {
   const avgAfterAlc = afterAlcScores.length ? (afterAlcScores.reduce((s, x) => s + x, 0) / afterAlcScores.length).toFixed(1) : null;
   const avgNormal = normalScores.length ? (normalScores.reduce((s, x) => s + x, 0) / normalScores.length).toFixed(1) : null;
 
-  // 30-day calendar strip
+  // 30-day calendar strip with dynamic colors and emojis
+  _alcDetailDate = '';
   const calStrip = d30.map(dt => {
-    const hasAlc = alcLog.some(a => a.date === dt && a.type === 'alcohol');
+    const dayAlcItems = alcLog.filter(a => a.date === dt && a.type === 'alcohol');
+    const hasAlc = dayAlcItems.length > 0;
     const hasCheat = allEntries.some(e => e.date === dt && e.isCheatmeal);
     const d = new Date(dt);
     const dayNum = d.getDate();
-    const bg = hasAlc ? '#FFCDD2' : hasCheat ? '#FFF3E0' : 'var(--bg)';
-    const icon = hasAlc ? '🍷' : hasCheat ? '🍔' : '';
     const isToday = dt === fmtDate(now);
-    return `<div style="display:flex;flex-direction:column;align-items:center;min-width:24px;padding:2px 0">
-      <div style="font-size:8px;color:var(--text-muted);${isToday ? 'font-weight:800' : ''}">${dayNum}</div>
+    const hasContent = hasAlc || hasCheat;
+
+    // Dynamic background color
+    let bg = 'var(--bg)';
+    if (hasAlc && hasCheat) {
+      bg = _alcDayColor(dt, alcLog, checklist); // alcohol takes priority
+    } else if (hasAlc) {
+      bg = _alcDayColor(dt, alcLog, checklist);
+    } else if (hasCheat) {
+      bg = _cheatDayColor(dt, allEntries, allActs, bmr);
+    }
+    const isBlack = bg === '#263238';
+    const dayColor = isBlack ? '#fff' : 'var(--text-muted)';
+
+    // Dynamic emoji
+    let icon = '';
+    if (hasAlc && hasCheat) {
+      // Pick most serious alcohol emoji
+      const alcE = dayAlcItems.map(a => _alcEmoji(a.name));
+      const priority = ['🥃','🍸','🍷','🍹','🍺'];
+      const bestAlc = priority.find(e => alcE.includes(e)) || '🍷';
+      const cheatE = _cheatEmoji((allEntries.find(e => e.date === dt && e.isCheatmeal) || {}).dishName);
+      icon = `<span style="font-size:8px">${bestAlc}${cheatE}</span>`;
+    } else if (hasAlc) {
+      const alcE = dayAlcItems.map(a => _alcEmoji(a.name));
+      const priority = ['🥃','🍸','🍷','🍹','🍺'];
+      icon = priority.find(e => alcE.includes(e)) || '🍷';
+    } else if (hasCheat) {
+      icon = _cheatEmoji((allEntries.find(e => e.date === dt && e.isCheatmeal) || {}).dishName);
+    }
+
+    return `<div style="display:flex;flex-direction:column;align-items:center;min-width:24px;padding:2px 0;cursor:${hasContent ? 'pointer' : 'default'}" ${hasContent ? `onclick="showAlcDayDetail('${dt}')"` : ''}>
+      <div style="font-size:8px;color:${dayColor};${isToday ? 'font-weight:800' : ''}">${dayNum}</div>
       <div style="width:22px;height:22px;border-radius:6px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:11px;${isToday ? 'border:2px solid var(--primary)' : ''}">${icon}</div>
     </div>`;
   }).join('');
@@ -4288,6 +4497,15 @@ function renderAlcoholStatsBlock(MON) {
     }
   }
 
+  // Legend for calendar colors
+  const legend = `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:10px;color:var(--text-muted)">
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#E8F5E9;vertical-align:middle"></span> Лёгкий ЧМ</span>
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#FFF8E1;vertical-align:middle"></span> Умер. алк</span>
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#FFF3E0;vertical-align:middle"></span> ЧМ/жёлт</span>
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#FFCDD2;vertical-align:middle"></span> Много алк</span>
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#263238;vertical-align:middle"></span> Последствия</span>
+  </div>`;
+
   return `<div class="card">
     <h3 style="font-size:15px;font-weight:800;margin-bottom:12px">🍷 Алкоголь и читмилы (30 дней)</h3>
     <div style="display:flex;gap:16px;margin-bottom:12px">
@@ -4304,8 +4522,10 @@ function renderAlcoholStatsBlock(MON) {
         <div style="font-size:11px;color:var(--text-muted)">✅ Чистых дней</div>
       </div>
     </div>
-    <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Календарь</div>
+    <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Календарь <span style="font-weight:400;font-size:10px">(нажми на день для деталей)</span></div>
     <div style="display:flex;overflow-x:auto;gap:2px;padding-bottom:4px">${calStrip}</div>
+    ${legend}
+    <div id="alc-day-detail"></div>
     ${corrMsg}
   </div>`;
 }
