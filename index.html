@@ -254,7 +254,7 @@ body {
 .stat-bar-wrap { margin-bottom: 8px; }
 .stat-bar-row { display: flex; align-items: center; gap: 10px; }
 .stat-bar-label { width: 54px; font-size: 12px; color: var(--text-muted); text-align: right; }
-.stat-bar-bg { flex: 1; height: 22px; background: var(--border); border-radius: 11px; overflow: hidden; }
+.stat-bar-bg { flex: 1; height: 22px; background: var(--border); border-radius: 11px; overflow: hidden; position: relative; }
 .stat-bar-fill {
   height: 100%; border-radius: 11px;
   display: flex; align-items: center; padding: 0 8px;
@@ -1390,7 +1390,15 @@ function init() {
   // Background checks
   updateApiCounterUI();
   checkGoogleAccess().catch(() => {});
-  retroDetectAlcoholAndCheatmeals();
+
+  // One-time cleanup: remove retro-detected alcohol entries (v27 fix)
+  try {
+    const alcLog = getAlcoholCheatLog();
+    const cleaned = alcLog.filter(a => !a.retroDetected);
+    if (cleaned.length < alcLog.length) {
+      localStorage.setItem('alcohol_cheat_log', JSON.stringify(cleaned));
+    }
+  } catch(e) {}
 }
 
 // ──────────────────────────────────────────
@@ -1503,9 +1511,8 @@ function refreshMain() {
   $('main-greeting').textContent = `${gr}, ${S.childName}! 👋`;
   $('main-date').textContent     = formatFullDate(now);
 
-  // Morning checklist & alcohol brief
+  // Morning checklist
   renderMorningChecklist();
-  renderAlcoholCheatCard();
 
   // Show alcohol button only for 18+
   const alcBtn = $('alcohol-btn-block');
@@ -2386,23 +2393,6 @@ async function autoSaveFromConfirm() {
 
   S.lastSavedEntry = entry;
 
-  // Auto-log alcohol if AI detected it
-  if (r.is_alcohol) {
-    const alcDrinks = (r.components || []).filter(c => c.flag === 'drink').map(c => c.name);
-    const alcName = alcDrinks.length ? alcDrinks.join(', ') : r.dish_name;
-    const log = getAlcoholCheatLog();
-    log.push({
-      id: Date.now() + 1,
-      date: entry.date,
-      time: entry.time,
-      type: 'alcohol',
-      name: alcName,
-      amount: r.portion || '—',
-    });
-    localStorage.setItem('alcohol_cheat_log', JSON.stringify(log));
-    toast('🍷 Алкоголь записан автоматически');
-  }
-
   scheduleCloudSync();
   showFeedback(entry);
 }
@@ -3065,17 +3055,18 @@ function renderMorningChecklist() {
     return;
   }
 
-  // Full checklist form with sliders
-  _checklistDraft = {};
+  // Full checklist form with sliders — use _checklistDraft if pre-filled (editing)
+  if (!Object.keys(_checklistDraft).length) _checklistDraft = {};
   let rows = CHECKLIST_QUESTIONS.map(q => {
+    const v = _checklistDraft[q.key] || 3;
     return `<div class="checklist-slider-row">
       <div class="slider-icon">${q.icon}</div>
       <div class="slider-body">
         <div class="slider-label">
           <span>${q.label}</span>
-          <span class="slider-val" id="cl-val-${q.key}">${q.emojis[2]} 3/5</span>
+          <span class="slider-val" id="cl-val-${q.key}">${q.emojis[v - 1]} ${v}/5</span>
         </div>
-        <input type="range" min="1" max="5" value="3" step="1"
+        <input type="range" min="1" max="5" value="${v}" step="1"
           data-q="${q.key}"
           oninput="pickChecklist('${q.key}', +this.value)">
       </div>
@@ -3090,7 +3081,7 @@ function renderMorningChecklist() {
       <div class="input-with-voice">
         <textarea id="checklist-comment" rows="2" placeholder="Напр: болит голова, отлично выспался, стресс на работе..."
           style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:none"
-          oninput="_checklistDraft.comment = this.value"></textarea>
+          oninput="_checklistDraft.comment = this.value">${esc(_checklistDraft.comment || '')}</textarea>
         <button class="voice-btn" onclick="voiceToField('checklist-comment')" title="Голосовой ввод">🎤</button>
       </div>
     </div>
@@ -3102,26 +3093,14 @@ function renderMorningChecklist() {
 }
 
 function openMorningChecklist() {
-  // Reset to show full form by clearing saved for re-entry
+  // Pre-fill draft with saved values, then clear saved so form renders
   const today = fmtDate(new Date());
   const all = getMorningChecklist();
   _checklistDraft = all[today] || {};
   delete all[today];
   localStorage.setItem('morning_checklist', JSON.stringify(all));
+  // renderMorningChecklist will use _checklistDraft to pre-fill sliders and comment
   renderMorningChecklist();
-  // Re-select saved slider values
-  CHECKLIST_QUESTIONS.forEach(q => {
-    if (_checklistDraft[q.key]) {
-      const slider = document.querySelector(`input[type="range"][data-q="${q.key}"]`);
-      if (slider) slider.value = _checklistDraft[q.key];
-      pickChecklist(q.key, _checklistDraft[q.key]);
-    }
-  });
-  // Restore comment
-  if (_checklistDraft.comment) {
-    const ta = $('checklist-comment');
-    if (ta) ta.value = _checklistDraft.comment;
-  }
 }
 
 function pickChecklist(key, val) {
@@ -3547,24 +3526,6 @@ async function saveEntry() {
   }
 
   S.lastSavedEntry = entry;
-
-  // Auto-log alcohol if AI detected it
-  const ar = S.analysisResult;
-  if (ar && ar.is_alcohol) {
-    const alcDrinks = (ar.components || []).filter(c => c.flag === 'drink').map(c => c.name);
-    const alcName = alcDrinks.length ? alcDrinks.join(', ') : entry.dishName;
-    const alcLog = getAlcoholCheatLog();
-    alcLog.push({
-      id: Date.now() + 1,
-      date: entry.date,
-      time: entry.time,
-      type: 'alcohol',
-      name: alcName,
-      amount: ar.portion || '—',
-    });
-    localStorage.setItem('alcohol_cheat_log', JSON.stringify(alcLog));
-    toast('🍷 Алкоголь записан автоматически');
-  }
 
   scheduleCloudSync();
   showFeedback(entry);
@@ -4093,7 +4054,6 @@ function renderDeficitWeightChart(days, norm) {
 }
 
 function renderStats() {
-  retroDetectAlcoholAndCheatmeals();
   const all = getEntries();
   const allActs = getActivities();
   const norm = S.dailyNorms.cal || 2000;
@@ -4232,17 +4192,27 @@ function renderStats() {
     <div class="card">
       <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🏃 Активность за ${periodLabel}</h3>
       ${(() => {
-        const totalActBurned = days.reduce((s, d) => s + d.actBurn, 0);
+        const actDays = days.filter(d => d.actBurn > 0);
+        const totalActBurned = actDays.reduce((s, d) => s + d.actBurn, 0);
         if (!totalActBurned) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Нет записей об активности</div>';
-        const maxB = Math.max(...days.map(d => d.actBurn), 1);
-        return days.map(d => {
-          const pct = d.actBurn > 0 ? Math.max(Math.round(d.actBurn / maxB * 100), 4) : 0;
+        const maxB = Math.max(...actDays.map(d => d.actBurn), 1);
+        const actColors = {walking:'#66BB6A',running:'#EF5350',swimming:'#42A5F5',skiing:'#90CAF9',football:'#FFA726',cycling:'#AB47BC',gym:'#EC407A',dancing:'#FF7043',yoga:'#26A69A',school_pe:'#5C6BC0',sauna:'#8D6E63',cleaning:'#78909C',reading:'#A1887F',study:'#7E57C2',custom:'#26C6DA'};
+        return actDays.map(d => {
+          const totalPct = Math.max(Math.round(d.actBurn / maxB * 100), 4);
           const label = d.date.getDate() + ' ' + MON[d.date.getMonth()];
-          const actIcons = d.dayActs ? [...new Set(d.dayActs.map(a => a.label.split(' ')[0]))].join('') : '';
+          const acts = d.dayActs || [];
+          const actIcons = [...new Set(acts.map(a => a.label.split(' ')[0]))].join('');
+          // Build stacked bar segments
+          const totalCal = acts.reduce((s, a) => s + (a.calBurned || 0), 0) || 1;
+          const segments = acts.map(a => {
+            const segPct = Math.round((a.calBurned || 0) / totalCal * 100);
+            const color = actColors[a.type] || 'var(--secondary)';
+            return '<div style="width:' + segPct + '%;height:100%;background:' + color + '"></div>';
+          }).join('');
           return '<div class="stat-bar-wrap"><div class="stat-bar-row" style="align-items:center">' +
             '<div class="stat-bar-label" style="font-weight:' + (d.isToday ? 800 : 400) + '">' + label + '</div>' +
-            '<div class="stat-bar-bg"><div class="stat-bar-fill" style="width:' + pct + '%;background:var(--secondary)">' +
-            (d.actBurn > 0 ? '−' + d.actBurn : '') + '</div></div>' +
+            '<div class="stat-bar-bg"><div style="width:' + totalPct + '%;height:100%;border-radius:6px;overflow:hidden;display:flex">' + segments + '</div>' +
+            '<span style="position:absolute;width:100%;text-align:center;font-size:10px;font-weight:700;color:#fff;mix-blend-mode:difference;line-height:16px">−' + d.actBurn + '</span></div>' +
             (actIcons ? '<div style="font-size:11px;min-width:28px;text-align:right;line-height:1">' + actIcons + '</div>' : '') +
             '</div></div>';
         }).join('') + '<div style="text-align:center;margin-top:8px;font-size:13px;color:var(--secondary);font-weight:700">Всего сожжено тренировками: ' + totalActBurned + ' ккал</div>';
