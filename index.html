@@ -4003,6 +4003,36 @@ function editEntry(id) {
         <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">😋 Удовольствие от еды</label>
         <select id="ee-enjoy" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text)">${enjoyOpts}</select>
       </div>
+      <div style="margin-bottom:12px;padding:10px;background:var(--bg);border-radius:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;margin-bottom:8px">
+          <input type="checkbox" id="ee-cheatmeal" ${e.isCheatmeal ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--unhealthy)">
+          🍔 Читмил
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px">
+          <input type="checkbox" id="ee-alcohol" onchange="toggleEditAlcFields()" style="width:18px;height:18px;accent-color:#9C27B0">
+          🍷 Алкоголь
+        </label>
+        <div id="ee-alc-fields" style="display:none;margin-top:8px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+            <select id="ee-alc-type" style="padding:8px;border:2px solid var(--border);border-radius:8px;font-size:12px;font-family:inherit;background:var(--card);color:var(--text)">
+              <option value="beer">🍺 Пиво</option>
+              <option value="wine">🍷 Вино</option>
+              <option value="spirits">🥃 Крепкое</option>
+              <option value="cocktail">🍸 Коктейль</option>
+              <option value="other">🍹 Другое</option>
+            </select>
+            <select id="ee-alc-strength" style="padding:8px;border:2px solid var(--border);border-radius:8px;font-size:12px;font-family:inherit;background:var(--card);color:var(--text)">
+              <option value="light">🟢 Лёгкий</option>
+              <option value="medium">🟡 Средний</option>
+              <option value="strong">🔴 Крепкий</option>
+            </select>
+          </div>
+          <input type="text" id="ee-alc-amount" placeholder="напр. 2 бокала, 500 мл" style="width:100%;padding:8px;border:2px solid var(--border);border-radius:8px;font-size:12px;font-family:inherit;background:var(--card);color:var(--text);box-sizing:border-box">
+        </div>
+      </div>
+      <div style="margin-bottom:12px">
+        <button onclick="reanalyzeFromEdit(${id})" style="width:100%;padding:10px;border:2px dashed var(--primary);border-radius:12px;background:transparent;color:var(--primary);font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">🤖 Пересчитать через AI</button>
+      </div>
       <div style="margin-bottom:16px">
         <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">💬 Комментарий</label>
         <textarea id="ee-comment" rows="2" placeholder="Заметки о блюде..."
@@ -4015,6 +4045,64 @@ function editEntry(id) {
     </div>`;
   overlay.addEventListener('click', ev => { if (ev.target === overlay) closeEditEntry(); });
   document.body.appendChild(overlay);
+
+  // Pre-fill alcohol fields if linked record exists
+  const alcLog = getAlcoholCheatLog();
+  const linkedAlc = alcLog.find(a => a.type === 'alcohol' && a.date === e.date && Math.abs((a.id || 0) - e.id) < 2);
+  if (linkedAlc) {
+    const alcCb = document.getElementById('ee-alcohol');
+    if (alcCb) alcCb.checked = true;
+    const alcFields = document.getElementById('ee-alc-fields');
+    if (alcFields) alcFields.style.display = 'block';
+    if (linkedAlc.alcType) document.getElementById('ee-alc-type').value = linkedAlc.alcType;
+    if (linkedAlc.strength) document.getElementById('ee-alc-strength').value = linkedAlc.strength;
+    if (linkedAlc.amount && linkedAlc.amount !== '—') document.getElementById('ee-alc-amount').value = linkedAlc.amount;
+  }
+}
+
+function toggleEditAlcFields() {
+  const cb = document.getElementById('ee-alcohol');
+  const fields = document.getElementById('ee-alc-fields');
+  if (fields) fields.style.display = cb && cb.checked ? 'block' : 'none';
+}
+
+async function reanalyzeFromEdit(id) {
+  const name = document.getElementById('ee-name')?.value?.trim();
+  if (!name) { toast('Введи название блюда'); return; }
+
+  const btn = event.target;
+  btn.textContent = '⏳ Анализирую...';
+  btn.disabled = true;
+
+  try {
+    const prompt = `Пользователь описал блюдо: "${name}".
+Рассчитай КБЖУ и оцени полезность как диетолог. Обязательно укажи ненулевые значения.
+Ответь ТОЛЬКО JSON: {"dish_name":"название","portion":"порция","emoji":"эмодзи","calories":число,"proteins":число,"fats":число,"carbs":число,"health_score":1-10,"health_color":"green/yellow/red","health_comment":"2-3 предложения на русском","question":"","maybe_alcohol":true/false,"maybe_cheatmeal":true/false}
+maybe_alcohol = true если это алкогольный напиток. maybe_cheatmeal = true если это фастфуд, сладости, вредная еда.`;
+    const text = await geminiRequest(prompt, null);
+    const r = parseAIJson(text);
+
+    // Fill fields
+    if (r.dish_name) document.getElementById('ee-name').value = r.dish_name;
+    if (r.portion) document.getElementById('ee-portion').value = r.portion;
+    document.getElementById('ee-cal').value = r.calories || 0;
+    document.getElementById('ee-p').value = r.proteins || 0;
+    document.getElementById('ee-f').value = r.fats || 0;
+    document.getElementById('ee-c').value = r.carbs || 0;
+
+    // Pre-check cheatmeal/alcohol if AI suggests
+    if (r.maybe_cheatmeal) document.getElementById('ee-cheatmeal').checked = true;
+    if (r.maybe_alcohol) {
+      document.getElementById('ee-alcohol').checked = true;
+      document.getElementById('ee-alc-fields').style.display = 'block';
+    }
+
+    toast('✅ БЖУ пересчитано!');
+  } catch(err) {
+    toast('Ошибка: ' + (err.message || '').slice(0, 60));
+  }
+  btn.textContent = '🤖 Пересчитать через AI';
+  btn.disabled = false;
 }
 
 function saveEditEntry(id) {
@@ -4032,8 +4120,39 @@ function saveEditEntry(id) {
   all[idx].hunger    = parseInt(document.getElementById('ee-hunger').value) || 0;
   all[idx].enjoyment = parseInt(document.getElementById('ee-enjoy').value) || 0;
   all[idx].userComment = (document.getElementById('ee-comment')?.value || '').trim();
+  all[idx].isCheatmeal = !!(document.getElementById('ee-cheatmeal')?.checked);
 
   ls('diary_entries', JSON.stringify(all));
+
+  // Handle alcohol record
+  const alcChecked = !!(document.getElementById('ee-alcohol')?.checked);
+  const alcLog = getAlcoholCheatLog();
+  const alcIdx = alcLog.findIndex(a => a.type === 'alcohol' && a.date === all[idx].date && Math.abs((a.id || 0) - all[idx].id) < 2);
+
+  if (alcChecked) {
+    const alcTypeNames = {beer:'Пиво',wine:'Вино',spirits:'Крепкий алкоголь',cocktail:'Коктейль',other:'Алкоголь'};
+    const alcTypeVal = document.getElementById('ee-alc-type')?.value || 'other';
+    const alcRecord = {
+      id: all[idx].id + 0.5,
+      date: all[idx].date,
+      time: all[idx].time,
+      type: 'alcohol',
+      name: alcTypeNames[alcTypeVal] || 'Алкоголь',
+      alcType: alcTypeVal,
+      strength: document.getElementById('ee-alc-strength')?.value || 'light',
+      amount: (document.getElementById('ee-alc-amount')?.value || '').trim() || '—'
+    };
+    if (alcIdx >= 0) {
+      alcLog[alcIdx] = alcRecord;
+    } else {
+      alcLog.push(alcRecord);
+    }
+    localStorage.setItem('alcohol_cheat_log', JSON.stringify(alcLog));
+  } else if (alcIdx >= 0) {
+    alcLog.splice(alcIdx, 1);
+    localStorage.setItem('alcohol_cheat_log', JSON.stringify(alcLog));
+  }
+
   closeEditEntry();
   renderDiary();
   refreshMain();
