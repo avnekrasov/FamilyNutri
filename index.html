@@ -4303,6 +4303,20 @@ function renderDeficitWeightChart(days, norm) {
     return '';
   }).join('');
 
+  // Selection highlight + transparent hit-boxes for clicks
+  const selHighlights = days.map((d, i) => {
+    if (d.dateStr !== _chartDetailDate) return '';
+    const cx = xC(i);
+    const colW = gap * 0.9;
+    return `<rect x="${(cx - colW/2).toFixed(1)}" y="${pad.t}" width="${colW.toFixed(1)}" height="${cH}" fill="var(--primary)" fill-opacity="0.12" rx="3"/>`;
+  }).join('');
+
+  const hitBoxes = days.map((d, i) => {
+    const cx = xC(i);
+    const colW = gap * 0.9;
+    return `<rect x="${(cx - colW/2).toFixed(1)}" y="${(pad.t - 10)}" width="${colW.toFixed(1)}" height="${(cH + pad.b + 6)}" fill="transparent" cursor="pointer" onclick="showChartDayDetail('${d.dateStr}')" style="touch-action:manipulation"/>`;
+  }).join('');
+
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;max-height:240px">
     <defs>
       <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
@@ -4313,6 +4327,7 @@ function renderDeficitWeightChart(days, norm) {
     </defs>
     <rect x="${pad.l}" y="${pad.t}" width="${cW}" height="${cH}" fill="url(#bgGrad)" rx="4"/>
     <line x1="${pad.l}" y1="${zero}" x2="${pad.l + cW}" y2="${zero}" stroke="var(--border)" stroke-width="0.7" stroke-dasharray="4,3"/>
+    ${selHighlights}
     ${bars}
     ${wLine}
     ${wDots.join('')}
@@ -4320,6 +4335,7 @@ function renderDeficitWeightChart(days, norm) {
     ${yLabels}
     ${wLabels}
     ${impactMarkers}
+    ${hitBoxes}
   </svg>`;
 }
 
@@ -4410,6 +4426,7 @@ function renderStats() {
         · ⚠️ Плохое самочувствие
       </div>
       ${renderDeficitWeightChart(days, norm)}
+      <div id="chart-day-detail"></div>
       <div style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
         <div style="text-align:center;flex:1">
           <div style="font-size:18px;font-weight:800;color:${avgBalance <= 0 ? 'var(--healthy)' : 'var(--unhealthy)'}">${avgBalance > 0 ? '+' : ''}${avgBalance}</div>
@@ -4565,11 +4582,103 @@ function renderStats() {
 
     ${renderAlcoholStatsBlock(MON)}`;
 
-  // Auto-scroll alcohol calendar to show recent dates
+  // Auto-scroll alcohol calendar to show recent dates + render chart detail
   requestAnimationFrame(() => {
     const strip = document.getElementById('alc-cal-strip');
     if (strip) strip.scrollLeft = strip.scrollWidth;
+    _renderChartDetail();
   });
+}
+
+// ── Chart day detail (clickable bars/dots) ──
+let _chartDetailDate = '';
+
+function showChartDayDetail(dateStr) {
+  if (_chartDetailDate === dateStr) {
+    _chartDetailDate = '';
+    renderStats();
+    return;
+  }
+  _chartDetailDate = dateStr;
+  renderStats();
+}
+
+function _renderChartDetail() {
+  const el = document.getElementById('chart-day-detail');
+  if (!el) return;
+  if (!_chartDetailDate) { el.innerHTML = ''; return; }
+
+  const dateStr = _chartDetailDate;
+  const entries = getEntries().filter(e => e.date === dateStr);
+  const acts = getActivities().filter(a => a.date === dateStr);
+  const wh = getWeightHistory();
+  const dayWeight = wh.find(w => w.date === dateStr);
+  const norm = +(localStorage.getItem('daily_norm') || 2000);
+  const bmr = +(localStorage.getItem('bmr') || 1800);
+
+  const totalCal = entries.reduce((s, e) => s + (e.calories || 0), 0);
+  const totalP = entries.reduce((s, e) => s + (e.protein || 0), 0);
+  const totalF = entries.reduce((s, e) => s + (e.fat || 0), 0);
+  const totalC = entries.reduce((s, e) => s + (e.carbs || 0), 0);
+  const actBurn = acts.reduce((s, a) => s + (a.burned || 0), 0);
+  const totalBurned = actBurn + bmr;
+  const balance = totalCal - totalBurned;
+
+  const d = new Date(dateStr + 'T12:00:00');
+  const dayNames = ['вс','пн','вт','ср','чт','пт','сб'];
+  const monthNames = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+  const dateLabel = `${d.getDate()} ${monthNames[d.getMonth()]}, ${dayNames[d.getDay()]}`;
+
+  const balColor = balance <= 0 ? 'var(--healthy)' : 'var(--unhealthy)';
+  const balSign = balance > 0 ? '+' : '';
+
+  let html = `<div style="background:var(--bg);border-radius:12px;padding:10px 12px;margin-top:8px;border:1px solid var(--border)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-weight:700;font-size:13px">📅 ${dateLabel}</span>
+      <span style="font-weight:700;font-size:14px;color:${balColor}">${balSign}${balance} ккал</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--text-muted)">
+      <span>🍽 ${totalCal} ккал</span>
+      <span>🔥 −${totalBurned} (БМ ${bmr} + 🏃${actBurn})</span>
+      ${dayWeight ? `<span>⚖️ ${(+dayWeight.kg).toFixed(1)} кг</span>` : ''}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px 12px;font-size:11px;color:var(--text-muted);margin-top:4px">
+      <span>Б: ${totalP.toFixed(0)}г</span>
+      <span>Ж: ${totalF.toFixed(0)}г</span>
+      <span>У: ${totalC.toFixed(0)}г</span>
+      <span>Записей: ${entries.length}</span>
+    </div>`;
+
+  if (entries.length) {
+    const mealOrder = ['Завтрак','Обед','Ужин','Перекус'];
+    const mealGroups = {};
+    entries.forEach(e => { const m = e.meal || 'Другое'; if (!mealGroups[m]) mealGroups[m] = []; mealGroups[m].push(e); });
+    const sortedMeals = Object.keys(mealGroups).sort((a, b) => {
+      const ia = mealOrder.indexOf(a), ib = mealOrder.indexOf(b);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+    html += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-size:11px">`;
+    sortedMeals.forEach(meal => {
+      const items = mealGroups[meal];
+      const mCal = items.reduce((s, e) => s + (e.calories || 0), 0);
+      html += `<div style="color:var(--text-muted);margin-bottom:2px"><b>${meal}</b>: ${items.map(e => esc(e.dishName)).join(', ')} — ${mCal} ккал</div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (acts.length) {
+    html += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-size:11px;color:var(--text-muted)">`;
+    html += `<b>Активность</b>: ${acts.map(a => a.label + ' (' + (a.burned || 0) + ' ккал)').join(', ')}`;
+    html += `</div>`;
+  }
+
+  html += `<div style="margin-top:8px;text-align:center">
+    <button onclick="goToDiaryDate('${dateStr}')" style="padding:6px 16px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">📖 Открыть в дневнике</button>
+  </div>`;
+  html += `</div>`;
+
+  el.innerHTML = html;
+  requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
 }
 
 // ── Alcohol/cheatmeal calendar helpers ──
