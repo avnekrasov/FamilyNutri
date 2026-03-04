@@ -3778,8 +3778,9 @@ function renderDiary() {
     const clChips = CHECKLIST_QUESTIONS.map(q => {
       const v = dayChecklist[q.key] || 0;
       if (!v) return '';
+      const emoji = q.emojis[v - 1] || q.icon;
       return `<div style="display:flex;align-items:center;gap:3px;background:var(--bg);padding:4px 8px;border-radius:8px;font-size:11px">
-        <span>${q.icon}</span><span style="font-weight:600">${v}/5</span><span style="color:var(--text-muted);font-size:10px">${q.label}</span>
+        <span>${emoji}</span><span style="color:var(--text-muted);font-size:10px">${q.label}</span>
       </div>`;
     }).filter(Boolean).join('');
 
