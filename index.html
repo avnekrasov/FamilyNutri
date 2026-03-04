@@ -3778,19 +3778,26 @@ function renderDiary() {
     const clChips = CHECKLIST_QUESTIONS.map(q => {
       const v = dayChecklist[q.key] || 0;
       if (!v) return '';
-      const emoji = q.emojis[v - 1];
       return `<div style="display:flex;align-items:center;gap:3px;background:var(--bg);padding:4px 8px;border-radius:8px;font-size:11px">
-        <span>${q.icon}</span><span style="font-weight:600">${emoji}</span><span style="color:var(--text-muted);font-size:10px">${q.label}</span>
+        <span>${q.icon}</span><span style="font-weight:600">${v}/5</span><span style="color:var(--text-muted);font-size:10px">${q.label}</span>
       </div>`;
     }).filter(Boolean).join('');
 
     html += `<div class="card" style="padding:12px;margin-bottom:8px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div style="font-size:13px;font-weight:700">☀️ Самочувствие</div>
-        <button onclick="editDayComment('${dateStr}')" style="background:none;border:none;font-size:14px;cursor:pointer;padding:4px" title="Добавить/изменить комментарий">✏️💬</button>
+        <button onclick="editDayChecklist('${dateStr}')" style="background:none;border:none;font-size:14px;cursor:pointer;padding:4px" title="Редактировать чеклист">✏️</button>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">${clChips}</div>
       ${dayChecklist.comment ? `<div style="margin-top:8px;font-size:12px;color:var(--text-muted);font-style:italic;padding:8px;background:var(--bg);border-radius:8px;line-height:1.4">💬 ${esc(dayChecklist.comment)}</div>` : ''}
+    </div>`;
+  } else if (!isToday) {
+    // Show "add checklist" button for past dates without checklist
+    html += `<div class="card" style="padding:12px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:13px;font-weight:700;color:var(--text-muted)">☀️ Самочувствие не заполнено</div>
+        <button onclick="editDayChecklist('${dateStr}')" style="background:none;border:none;font-size:13px;cursor:pointer;padding:4px;color:var(--primary);font-weight:600">+ Заполнить</button>
+      </div>
     </div>`;
   }
 
@@ -3903,47 +3910,67 @@ function renderEntry(e, showDel) {
     </div>`;
 }
 
-function editDayComment(dateStr) {
+function editDayChecklist(dateStr) {
   const all = getMorningChecklist();
-  const existing = all[dateStr]?.comment || '';
+  const existing = all[dateStr] || {};
+  const dateLabel = dateStr.slice(5).replace('-', '.');
+
+  const sliders = CHECKLIST_QUESTIONS.map(q => {
+    const v = existing[q.key] || 3;
+    return `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:13px">${q.icon} ${q.label}</span>
+        <span style="font-size:12px;font-weight:600" id="dcl-val-${q.key}">${q.emojis[v - 1]} ${v}/5</span>
+      </div>
+      <input type="range" min="1" max="5" value="${v}" step="1" data-q="${q.key}"
+        style="width:100%;accent-color:var(--primary)"
+        oninput="(function(k,v){var q=CHECKLIST_QUESTIONS.find(x=>x.key===k);var el=document.getElementById('dcl-val-'+k);if(el&&q)el.textContent=q.emojis[v-1]+' '+v+'/5'})('${q.key}',+this.value)">
+    </div>`;
+  }).join('');
 
   const overlay = document.createElement('div');
-  overlay.id = 'day-comment-modal';
+  overlay.id = 'day-checklist-modal';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
   overlay.innerHTML = `
-    <div style="background:var(--card);border-radius:20px;padding:20px;width:100%;max-width:400px">
-      <h3 style="margin:0 0 14px;font-size:16px">💬 Комментарий за ${dateStr.slice(5).replace('-','.')}</h3>
-      <div style="margin-bottom:14px">
+    <div style="background:var(--card);border-radius:20px;padding:20px;width:100%;max-width:400px;max-height:90vh;overflow-y:auto">
+      <h3 style="margin:0 0 14px;font-size:16px">☀️ Самочувствие за ${dateLabel}</h3>
+      ${sliders}
+      <div style="margin-top:6px;margin-bottom:14px">
+        <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">💬 Комментарий</label>
         <div class="input-with-voice">
-          <textarea id="dc-text" rows="4" placeholder="Что важного произошло в этот день? Как себя чувствовал?"
-            style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:none">${esc(existing)}</textarea>
-          <button class="voice-btn" onclick="voiceToField('dc-text')" title="Голосовой ввод">🎤</button>
+          <textarea id="dcl-comment" rows="3" placeholder="Как себя чувствовал в этот день?"
+            style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:none;box-sizing:border-box">${esc(existing.comment || '')}</textarea>
+          <button class="voice-btn" onclick="voiceToField('dcl-comment')" title="Голосовой ввод">🎤</button>
         </div>
       </div>
       <div style="display:flex;gap:8px">
-        <button onclick="saveDayComment('${dateStr}')" style="flex:1;padding:14px;border:none;border-radius:12px;background:var(--primary);color:#fff;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer">💾 Сохранить</button>
-        <button onclick="closeDayCommentModal()" style="flex:1;padding:14px;border:2px solid var(--border);border-radius:12px;background:transparent;color:var(--text);font-size:15px;font-family:inherit;cursor:pointer">Отмена</button>
+        <button onclick="saveDayChecklist('${dateStr}')" style="flex:1;padding:14px;border:none;border-radius:12px;background:var(--primary);color:#fff;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer">💾 Сохранить</button>
+        <button onclick="closeDayChecklistModal()" style="flex:1;padding:14px;border:2px solid var(--border);border-radius:12px;background:transparent;color:var(--text);font-size:15px;font-family:inherit;cursor:pointer">Отмена</button>
       </div>
     </div>`;
-  overlay.addEventListener('click', ev => { if (ev.target === overlay) closeDayCommentModal(); });
+  overlay.addEventListener('click', ev => { if (ev.target === overlay) closeDayChecklistModal(); });
   document.body.appendChild(overlay);
-  // Focus textarea
-  setTimeout(() => { const t = document.getElementById('dc-text'); if (t) t.focus(); }, 100);
 }
 
-function saveDayComment(dateStr) {
+function saveDayChecklist(dateStr) {
   const all = getMorningChecklist();
-  if (!all[dateStr]) all[dateStr] = {};
-  all[dateStr].comment = (document.getElementById('dc-text')?.value || '').trim();
+  const entry = {};
+  CHECKLIST_QUESTIONS.forEach(q => {
+    const slider = document.querySelector(`#day-checklist-modal input[data-q="${q.key}"]`);
+    entry[q.key] = slider ? +slider.value : 3;
+  });
+  entry.comment = (document.getElementById('dcl-comment')?.value || '').trim() || undefined;
+  entry.ts = Date.now();
+  all[dateStr] = entry;
   localStorage.setItem('morning_checklist', JSON.stringify(all));
-  closeDayCommentModal();
+  closeDayChecklistModal();
   renderDiary();
   scheduleCloudSync();
-  toast('💬 Комментарий сохранён');
+  toast('☀️ Чеклист сохранён');
 }
 
-function closeDayCommentModal() {
-  const m = document.getElementById('day-comment-modal');
+function closeDayChecklistModal() {
+  const m = document.getElementById('day-checklist-modal');
   if (m) m.remove();
 }
 
