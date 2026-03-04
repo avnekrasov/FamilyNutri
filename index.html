@@ -4527,6 +4527,12 @@ function renderStats() {
     </div>
 
     ${renderAlcoholStatsBlock(MON)}`;
+
+  // Auto-scroll alcohol calendar to show recent dates
+  requestAnimationFrame(() => {
+    const strip = document.getElementById('alc-cal-strip');
+    if (strip) strip.scrollLeft = strip.scrollWidth;
+  });
 }
 
 // ── Alcohol/cheatmeal calendar helpers ──
@@ -4627,7 +4633,10 @@ function showAlcDayDetail(dateStr) {
   }
   html += '</div>';
   const el = document.getElementById('alc-day-detail');
-  if (el) el.innerHTML = html;
+  if (el) {
+    el.innerHTML = html;
+    requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+  }
 }
 
 function renderAlcoholStatsBlock(MON) {
@@ -4720,9 +4729,9 @@ function renderAlcoholStatsBlock(MON) {
       icon = _cheatEmoji((allEntries.find(e => e.date === dt && e.isCheatmeal) || {}).dishName);
     }
 
-    return `<div style="display:flex;flex-direction:column;align-items:center;min-width:24px;padding:2px 0;cursor:${hasContent ? 'pointer' : 'default'}" ${hasContent ? `onclick="showAlcDayDetail('${dt}')"` : ''}>
-      <div style="font-size:8px;color:${dayColor};${isToday ? 'font-weight:800' : ''}">${dayNum}</div>
-      <div style="width:22px;height:22px;border-radius:6px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:11px;${isToday ? 'border:2px solid var(--primary)' : ''}">${icon}</div>
+    return `<div style="display:flex;flex-direction:column;align-items:center;min-width:28px;padding:3px 0;cursor:${hasContent ? 'pointer' : 'default'};-webkit-tap-highlight-color:rgba(0,0,0,0.1);touch-action:manipulation;user-select:none" ${hasContent ? `onclick="showAlcDayDetail('${dt}')" role="button"` : ''}>
+      <div style="font-size:9px;color:${dayColor};${isToday ? 'font-weight:800' : ''}">${dayNum}</div>
+      <div style="width:26px;height:26px;border-radius:8px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:13px;${isToday ? 'border:2px solid var(--primary)' : ''}">${icon}</div>
     </div>`;
   }).join('');
 
@@ -4768,7 +4777,7 @@ function renderAlcoholStatsBlock(MON) {
       </div>
     </div>
     <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Календарь <span style="font-weight:400;font-size:10px">(нажми на день для деталей)</span></div>
-    <div style="display:flex;overflow-x:auto;gap:2px;padding-bottom:4px">${calStrip}</div>
+    <div id="alc-cal-strip" style="display:flex;overflow-x:auto;gap:2px;padding-bottom:4px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch">${calStrip}</div>
     ${legend}
     <div id="alc-day-detail"></div>
     ${corrMsg}
