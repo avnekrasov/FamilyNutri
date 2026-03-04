@@ -4478,6 +4478,7 @@ function renderStats() {
         // Activity type legend (emoji-based)
         const usedTypes = new Set();
         actDays.forEach(d => (d.dayActs || []).forEach(a => usedTypes.add(a.type)));
+        const actLabels = {walking:'Ходьба',running:'Бег',swimming:'Плавание',skiing:'Лыжи',football:'Футбол',tennis:'Теннис',cycling:'Велосипед',gym:'Зал',dancing:'Танцы',yoga:'Йога',school_pe:'Физ-ра',sauna:'Баня',cleaning:'Уборка',reading:'Чтение',study:'Учёба',custom:'Другое'};
         const actEmojis = {walking:'🚶',running:'🏃',swimming:'🏊',skiing:'⛷️',football:'⚽',tennis:'🎾',cycling:'🚴',gym:'🏋️',dancing:'💃',yoga:'🧘',school_pe:'📚',sauna:'🧖',cleaning:'🧹',reading:'📖',study:'📝',custom:'✏️'};
         const typeLegend = [...usedTypes].map(t =>
           '<span style="display:inline-flex;align-items:center;gap:1px;font-size:13px" title="' + (actLabels[t] || t) + '"><span style="width:8px;height:8px;border-radius:2px;background:' + (actColors[t] || 'var(--secondary)') + ';display:inline-block"></span>' + (actEmojis[t] || '🏃') + '</span>'
