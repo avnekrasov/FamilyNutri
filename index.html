@@ -3669,6 +3669,16 @@ function changeDay(delta) {
   renderDiary();
 }
 
+function goToDiaryDate(dateStr) {
+  S.diaryDate = new Date(dateStr + 'T12:00:00');
+  showScreen('diary');
+  renderDiary();
+  // Update bottom nav active state
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  const diaryBtn = document.querySelector('.tab-btn[onclick*="diary"]');
+  if (diaryBtn) diaryBtn.classList.add('active');
+}
+
 function addFoodForDiaryDate() {
   const d = S.diaryDate;
   const dateStr = fmtDate(d);
@@ -4620,6 +4630,14 @@ function showAlcDayDetail(dateStr) {
       html += `<div style="padding:2px 0">${_cheatEmoji(e.dishName)} ${esc(e.dishName)} — ${e.calories || 0} ккал</div>`;
     });
   }
+  // All diary entries for this day (full count)
+  const allDayEntries = entries.filter(e => e.date === dateStr);
+  if (allDayEntries.length) {
+    const totalCal = allDayEntries.reduce((s, e) => s + (e.calories || 0), 0);
+    html += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-size:11px;color:var(--text-muted)">
+      📋 Всего записей за день: ${allDayEntries.length} (${totalCal} ккал)
+    </div>`;
+  }
   // Next-day checklist if alcohol
   if (dayAlc.length) {
     const nextD = new Date(dateStr + 'T12:00:00'); nextD.setDate(nextD.getDate() + 1);
@@ -4631,6 +4649,10 @@ function showAlcDayDetail(dateStr) {
       </div>`;
     }
   }
+  // Link to diary for this day
+  html += `<div style="margin-top:8px;text-align:center">
+    <button onclick="goToDiaryDate('${dateStr}')" style="padding:6px 16px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">📖 Открыть в дневнике</button>
+  </div>`;
   html += '</div>';
   const el = document.getElementById('alc-day-detail');
   if (el) {
