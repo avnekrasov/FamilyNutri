@@ -954,6 +954,7 @@ body {
         <button class="activity-chip" data-type="swimming" data-cal="7">🏊 Плавание</button>
         <button class="activity-chip" data-type="skiing" data-cal="7">⛷️ Лыжи</button>
         <button class="activity-chip" data-type="football" data-cal="7">⚽ Футбол</button>
+        <button class="activity-chip" data-type="tennis" data-cal="7">🎾 Теннис</button>
         <button class="activity-chip" data-type="cycling" data-cal="6">🚴 Велосипед</button>
         <button class="activity-chip" data-type="gym" data-cal="5">🏋️ Тренировка</button>
         <button class="activity-chip" data-type="dancing" data-cal="5">💃 Танцы</button>
@@ -3768,8 +3769,8 @@ function renderDiary() {
       const v = dayChecklist[q.key] || 0;
       if (!v) return '';
       const emoji = q.emojis[v - 1];
-      return `<div style="display:flex;align-items:center;gap:3px;background:var(--bg);padding:4px 8px;border-radius:8px;font-size:12px">
-        <span>${q.icon}</span><span style="font-weight:600">${emoji} ${v}/5</span>
+      return `<div style="display:flex;align-items:center;gap:3px;background:var(--bg);padding:4px 8px;border-radius:8px;font-size:11px">
+        <span>${q.icon}</span><span style="font-weight:600">${emoji}</span><span style="color:var(--text-muted);font-size:10px">${q.label}</span>
       </div>`;
     }).filter(Boolean).join('');
 
@@ -3866,11 +3867,19 @@ function renderEntry(e, showDel) {
   const indicatorHtml = indicators.length
     ? `<div style="display:flex;gap:8px;margin-top:2px;font-size:11px;opacity:0.75">${indicators.map(i => `<span>${i}</span>`).join('')}</div>`
     : '';
+  // Badges for cheatmeal / alcohol
+  const badges = [];
+  if (e.isCheatmeal) badges.push('<span title="Читмил" style="font-size:12px">🍔</span>');
+  const alcLog = getAlcoholCheatLog();
+  const hasAlc = alcLog.some(a => a.type === 'alcohol' && a.date === e.date && Math.abs((a.id || 0) - e.id) < 2);
+  if (hasAlc) badges.push('<span title="Алкоголь" style="font-size:12px">🍷</span>');
+  const badgeHtml = badges.length ? ' ' + badges.join('') : '';
+
   return `
     <div class="meal-entry ${e.healthColor || 'yellow'}" style="border-left-color:${border};cursor:pointer" onclick="editEntry(${e.id})">
       ${thumb}
       <div class="meal-info">
-        <div class="meal-name">${esc(e.dishName)}</div>
+        <div class="meal-name">${esc(e.dishName)}${badgeHtml}</div>
         <div class="meal-time">${e.time}${e.portion ? ' · ' + esc(e.portion) : ''}</div>
         <div class="meal-macros">Б: ${e.proteins}г · Ж: ${e.fats}г · У: ${e.carbs}г</div>
         ${indicatorHtml}
@@ -4303,7 +4312,7 @@ function renderStats() {
         const totalActBurned = actDays.reduce((s, d) => s + d.actBurn, 0);
         if (!totalActBurned) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Нет записей об активности</div>';
         const maxB = Math.max(...actDays.map(d => d.actBurn), 1);
-        const actColors = {walking:'#66BB6A',running:'#EF5350',swimming:'#42A5F5',skiing:'#90CAF9',football:'#FFA726',cycling:'#AB47BC',gym:'#EC407A',dancing:'#FF7043',yoga:'#26A69A',school_pe:'#5C6BC0',sauna:'#8D6E63',cleaning:'#78909C',reading:'#A1887F',study:'#7E57C2',custom:'#26C6DA'};
+        const actColors = {walking:'#66BB6A',running:'#EF5350',swimming:'#42A5F5',skiing:'#90CAF9',football:'#FFA726',tennis:'#CDDC39',cycling:'#AB47BC',gym:'#EC407A',dancing:'#FF7043',yoga:'#26A69A',school_pe:'#5C6BC0',sauna:'#8D6E63',cleaning:'#78909C',reading:'#A1887F',study:'#7E57C2',custom:'#26C6DA'};
         const aN = actDays.length;
         const aW = 320, aH = 160;
         const aPad = { t: 12, b: 28, l: 32, r: 8 };
@@ -4347,12 +4356,12 @@ function renderStats() {
         const yAxisLabels = '<text x="' + (aPad.l - 3) + '" y="' + (aPad.t + 4) + '" text-anchor="end" font-size="7" fill="var(--text-muted)">' + maxB + '</text>' +
           '<text x="' + (aPad.l - 3) + '" y="' + (aPad.t + aCH + 2) + '" text-anchor="end" font-size="7" fill="var(--text-muted)">0</text>';
 
-        // Activity type legend
+        // Activity type legend (emoji-based)
         const usedTypes = new Set();
         actDays.forEach(d => (d.dayActs || []).forEach(a => usedTypes.add(a.type)));
-        const actLabels = {walking:'Ходьба',running:'Бег',swimming:'Плавание',skiing:'Лыжи',football:'Футбол',cycling:'Велосипед',gym:'Зал',dancing:'Танцы',yoga:'Йога',school_pe:'Физ-ра',sauna:'Баня',cleaning:'Уборка',reading:'Чтение',study:'Учёба',custom:'Другое'};
+        const actEmojis = {walking:'🚶',running:'🏃',swimming:'🏊',skiing:'⛷️',football:'⚽',tennis:'🎾',cycling:'🚴',gym:'🏋️',dancing:'💃',yoga:'🧘',school_pe:'📚',sauna:'🧖',cleaning:'🧹',reading:'📖',study:'📝',custom:'✏️'};
         const typeLegend = [...usedTypes].map(t =>
-          '<span style="display:inline-flex;align-items:center;gap:2px"><span style="width:8px;height:8px;border-radius:2px;background:' + (actColors[t] || 'var(--secondary)') + ';display:inline-block"></span> ' + (actLabels[t] || t) + '</span>'
+          '<span style="display:inline-flex;align-items:center;gap:1px;font-size:13px" title="' + (actLabels[t] || t) + '"><span style="width:8px;height:8px;border-radius:2px;background:' + (actColors[t] || 'var(--secondary)') + ';display:inline-block"></span>' + (actEmojis[t] || '🏃') + '</span>'
         ).join(' ');
 
         return '<svg viewBox="0 0 ' + aW + ' ' + aH + '" style="width:100%;height:auto;display:block;max-height:200px">' +
