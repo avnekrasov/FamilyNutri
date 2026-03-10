@@ -656,10 +656,7 @@ body {
           <div style="font-size:10px;color:var(--text-muted);text-align:center">Алкоголь</div>
         </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="btn btn-ghost" onclick="addYesterdayFood()" style="flex:1;padding:6px;font-size:12px;border-radius:10px">🍽 Еда за вчера</button>
-        <button class="btn btn-ghost" onclick="addYesterdayActivity()" style="flex:1;padding:6px;font-size:12px;border-radius:10px">🏃 Активность за вчера</button>
-      </div>
+      <button class="btn btn-ghost" onclick="toggleYesterdayMode()" id="yesterday-toggle-btn" style="width:100%;padding:6px;font-size:12px;border-radius:10px;margin-top:8px">📅 Записать за вчера</button>
     </div>
 
     <!-- DAILY WEIGHT -->
@@ -2433,7 +2430,7 @@ async function autoSaveFromConfirm() {
 
   const now = new Date();
   const entryDate = _foodOverrideDate || fmtDate(now);
-  if (!_photoQueue.length) _foodOverrideDate = null;
+  if (!_photoQueue.length && !_yesterdayMode) _foodOverrideDate = null;
   const entry = {
     id:          Date.now(),
     date:        entryDate,
@@ -2520,19 +2517,33 @@ function startTextFood() {
   if (text && text.trim()) analyzeVoiceFood(text.trim());
 }
 
-function addYesterdayFood() {
-  const y = new Date(); y.setDate(y.getDate() - 1);
-  _foodOverrideDate = fmtDate(y);
-  toast('📅 Запись за вчера');
-  const text = prompt('Опиши что ты съел вчера:');
-  if (text && text.trim()) { analyzeVoiceFood(text.trim()); }
-  else { _foodOverrideDate = null; }
+let _yesterdayMode = false;
+function resetYesterdayMode() {
+  if (!_yesterdayMode) return;
+  _yesterdayMode = false;
+  _foodOverrideDate = null;
+  _activityOverrideDate = null;
+  const btn = $('yesterday-toggle-btn');
+  if (btn) { btn.textContent = '📅 Записать за вчера'; btn.style.background = ''; btn.style.color = ''; }
 }
-
-function addYesterdayActivity() {
+function toggleYesterdayMode() {
+  _yesterdayMode = !_yesterdayMode;
   const y = new Date(); y.setDate(y.getDate() - 1);
-  S.diaryDate = y;
-  nav('activity');
+  if (_yesterdayMode) {
+    _foodOverrideDate = fmtDate(y);
+    _activityOverrideDate = fmtDate(y);
+    toast('📅 Режим записи за вчера');
+  } else {
+    _foodOverrideDate = null;
+    _activityOverrideDate = null;
+    toast('📅 Режим записи за сегодня');
+  }
+  const btn = $('yesterday-toggle-btn');
+  if (btn) {
+    btn.textContent = _yesterdayMode ? '📅 Режим: ВЧЕРА (нажми для отмены)' : '📅 Записать за вчера';
+    btn.style.background = _yesterdayMode ? 'var(--primary)' : '';
+    btn.style.color = _yesterdayMode ? '#fff' : '';
+  }
 }
 
 async function analyzeVoiceFood(description) {
@@ -2873,7 +2884,7 @@ function saveActivity() {
   _selActivityType = null;
   _selDurationMin  = null;
   _activityPhoto   = null;
-  _activityOverrideDate = null;
+  if (!_yesterdayMode) _activityOverrideDate = null;
   _aiActivityData  = null;
   document.querySelectorAll('.activity-chip.selected, .duration-chip.selected').forEach(b => b.classList.remove('selected'));
   $('activity-preview').style.display = 'none';
@@ -3061,6 +3072,20 @@ function saveWeightForPast() {
   if (!val || val < 20 || val > 300) { toast('Введи корректный вес (20-300 кг)'); return; }
   $('weight-today-input').value = val;
   saveWeight(date);
+}
+
+function editDiaryWeight(dateStr, currentKg) {
+  const val = parseFloat(prompt('Вес (кг):', currentKg || S.weightKg || ''));
+  if (!val || val < 20 || val > 300) { if (val) toast('Введи корректный вес (20-300 кг)'); return; }
+  const history = getWeightHistory();
+  const idx = history.findIndex(w => w.date === dateStr);
+  if (idx >= 0) { history[idx].kg = val; } else { history.push({ date: dateStr, kg: val }); }
+  localStorage.setItem('weight_history', JSON.stringify(history));
+  // Update profile weight if editing today
+  if (dateStr === fmtDate(new Date())) { S.weightKg = val; ls('user_weight', val); S.dailyNorms = calcDailyNorms(); }
+  toast('⚖️ Вес обновлён: ' + val + ' кг');
+  scheduleCloudSync();
+  renderDiary();
 }
 
 function refreshWeightWidget() {
@@ -3858,6 +3883,7 @@ function renderDiary() {
   }
 
   // Weight for this day
+  const diaryDateStr = fmtDate(d);
   if (dayWeight) {
     html += `
     <div class="diary-section">
@@ -3866,12 +3892,21 @@ function renderDiary() {
         <div class="meal-thumb">⚖️</div>
         <div class="meal-info">
           <div class="meal-name">Вес за день</div>
-          <div class="meal-time">${fmtDate(d)}</div>
+          <div class="meal-time">${diaryDateStr}</div>
         </div>
         <div class="meal-right">
-          <div class="meal-calories" style="color:#9B59B6">${dayWeight.kg}</div>
+          <div class="meal-calories" style="color:#9B59B6">${(+dayWeight.kg).toFixed(1)}</div>
           <div class="meal-cal-label">кг</div>
+          <button class="delete-btn" onclick="editDiaryWeight('${diaryDateStr}', ${dayWeight.kg})" style="font-size:14px">✏️</button>
         </div>
+      </div>
+    </div>`;
+  } else if (diaryDateStr <= fmtDate(new Date())) {
+    html += `
+    <div class="diary-section">
+      <div class="diary-section-title">⚖️ Вес</div>
+      <div style="text-align:center;padding:8px">
+        <button class="btn btn-ghost" onclick="editDiaryWeight('${diaryDateStr}', 0)" style="font-size:13px;padding:8px 16px;border-radius:10px">+ Добавить вес</button>
       </div>
     </div>`;
   }
@@ -4660,7 +4695,7 @@ function _renderChartDetail() {
   const bmr = +(localStorage.getItem('bmr') || 1800);
 
   const totalCal = entries.reduce((s, e) => s + (e.calories || 0), 0);
-  const actBurn = acts.reduce((s, a) => s + (a.burned || 0), 0);
+  const actBurn = acts.reduce((s, a) => s + (a.calBurned || 0), 0);
   const totalBurned = actBurn + bmr;
   const balance = totalCal - totalBurned;
 
