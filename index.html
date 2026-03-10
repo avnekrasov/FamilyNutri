@@ -656,6 +656,10 @@ body {
           <div style="font-size:10px;color:var(--text-muted);text-align:center">Алкоголь</div>
         </div>
       </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-ghost" onclick="addYesterdayFood()" style="flex:1;padding:6px;font-size:12px;border-radius:10px">🍽 Еда за вчера</button>
+        <button class="btn btn-ghost" onclick="addYesterdayActivity()" style="flex:1;padding:6px;font-size:12px;border-radius:10px">🏃 Активность за вчера</button>
+      </div>
     </div>
 
     <!-- DAILY WEIGHT -->
@@ -2429,7 +2433,7 @@ async function autoSaveFromConfirm() {
 
   const now = new Date();
   const entryDate = _foodOverrideDate || fmtDate(now);
-  _foodOverrideDate = null;
+  if (!_photoQueue.length) _foodOverrideDate = null;
   const entry = {
     id:          Date.now(),
     date:        entryDate,
@@ -2514,6 +2518,21 @@ function startVoiceFood() {
 function startTextFood() {
   const text = prompt('Опиши что ты съел (например: гречка с курицей):');
   if (text && text.trim()) analyzeVoiceFood(text.trim());
+}
+
+function addYesterdayFood() {
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  _foodOverrideDate = fmtDate(y);
+  toast('📅 Запись за вчера');
+  const text = prompt('Опиши что ты съел вчера:');
+  if (text && text.trim()) { analyzeVoiceFood(text.trim()); }
+  else { _foodOverrideDate = null; }
+}
+
+function addYesterdayActivity() {
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  S.diaryDate = y;
+  nav('activity');
 }
 
 async function analyzeVoiceFood(description) {
@@ -3179,8 +3198,8 @@ function renderMorningChecklist() {
     <button class="btn btn-primary" style="width:100%;margin-top:10px;padding:10px;font-size:14px" onclick="saveMorningChecklist()" id="save-checklist-btn">✅ Готово</button>
   </div>`;
 
-  // Initialize all sliders with default value 3
-  CHECKLIST_QUESTIONS.forEach(q => { _checklistDraft[q.key] = 3; });
+  // Initialize sliders: ideal minus 1 (4 for normal, 2 for inverted/stress)
+  CHECKLIST_QUESTIONS.forEach(q => { _checklistDraft[q.key] = q.inverted ? 2 : 4; });
 }
 
 function openMorningChecklist() {
@@ -3917,7 +3936,7 @@ function editDayChecklist(dateStr) {
   const dateLabel = dateStr.slice(5).replace('-', '.');
 
   const sliders = CHECKLIST_QUESTIONS.map(q => {
-    const v = existing[q.key] || 3;
+    const v = existing[q.key] || (q.inverted ? 2 : 4);
     return `<div style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <span style="font-size:13px">${q.icon} ${q.label}</span>
@@ -4265,8 +4284,14 @@ function renderDeficitWeightChart(days, norm) {
     const wp = [];
     days.forEach((d, i) => {
       if (dw[i] !== null) {
-        wp.push(`${xC(i).toFixed(1)},${yW(dw[i]).toFixed(1)}`);
-        wDots.push(`<circle cx="${xC(i).toFixed(1)}" cy="${yW(dw[i]).toFixed(1)}" r="2.5" fill="#9B59B6" stroke="white" stroke-width="0.8"/>`);
+        const cx = xC(i).toFixed(1), cy = yW(dw[i]).toFixed(1);
+        wp.push(`${cx},${cy}`);
+        const isSel = d.dateStr === _chartDetailDate;
+        wDots.push(`<circle cx="${cx}" cy="${cy}" r="${isSel ? '4' : '2.5'}" fill="#9B59B6" stroke="white" stroke-width="${isSel ? '1.2' : '0.8'}"/>`);
+        if (isSel) {
+          const labelY = (+cy > pad.t + cH / 2) ? +cy - 8 : +cy + 12;
+          wDots.push(`<text x="${cx}" y="${labelY}" text-anchor="middle" font-size="9" font-weight="700" fill="#9B59B6">${(+dw[i]).toFixed(1)}</text>`);
+        }
       }
     });
     if (wp.length >= 2) wLine = `<path d="M ${wp.join(' L ')}" fill="none" stroke="#9B59B6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`;
@@ -4289,19 +4314,16 @@ function renderDeficitWeightChart(days, norm) {
     <text x="${pad.l + cW + 3}" y="${pad.t + 5}" text-anchor="start" font-size="7" fill="#9B59B6">${maxW.toFixed(1)}</text>
     <text x="${pad.l + cW + 3}" y="${pad.t + cH + 2}" text-anchor="start" font-size="7" fill="#9B59B6">${minW.toFixed(1)}</text>` : '';
 
-  // Impact markers
+  // Wellbeing markers on top — emoji from checklist for THIS day
   const checklist = getMorningChecklist();
   const alcLog = getAlcoholCheatLog();
   const impactMarkers = days.map((d, i) => {
-    if (d.isToday) return '';
-    const nextD = new Date(d.date); nextD.setDate(nextD.getDate() + 1);
-    const cl = checklist[fmtDate(nextD)];
+    const cl = checklist[d.dateStr];
     if (!cl) return '';
-    const bad = [cl.sleep, cl.energy, cl.wellbeing].filter(v => v && v <= 2).length;
-    if (bad >= 2) return `<text x="${xC(i).toFixed(1)}" y="${pad.t - 3}" text-anchor="middle" font-size="8">⚠️</text>`;
-    const hasAlc = alcLog.some(a => a.date === d.dateStr && a.type === 'alcohol');
-    if ((hasAlc || d.items.some(e => e.isCheatmeal)) && bad >= 1) return `<text x="${xC(i).toFixed(1)}" y="${pad.t - 3}" text-anchor="middle" font-size="7">😕</text>`;
-    return '';
+    const wb = cl.wellbeing || 0;
+    if (!wb) return '';
+    const wbEmojis = ['🤒','😣','😐','🙂','💚'];
+    return `<text x="${xC(i).toFixed(1)}" y="${pad.t - 3}" text-anchor="middle" font-size="${wb <= 2 ? 8 : 7}">${wbEmojis[wb - 1]}</text>`;
   }).join('');
 
   // Selection highlight + transparent hit-boxes for clicks
@@ -4406,6 +4428,27 @@ function renderStats() {
   const yPct  = Math.round(yw / total * 100);
   const rPct  = Math.round(rd / total * 100);
 
+  // Quality trend: compare with previous period
+  let qualityTrend = '';
+  if (periodDays) {
+    const prevCutoff = fmtDate(new Date(Date.now() - periodDays * 2 * 86400000));
+    const prevEntries = all.filter(e => e.date >= prevCutoff && e.date < cutoffDate);
+    if (prevEntries.length >= 3) {
+      let pG = 0, pT = 0;
+      prevEntries.forEach(e => { pT++; if (e.healthColor === 'green') pG++; });
+      const prevGPct = Math.round(pG / pT * 100);
+      const diff = gPct - prevGPct;
+      if (Math.abs(diff) >= 3) {
+        const arrow = diff > 0 ? '📈' : '📉';
+        const color = diff > 0 ? 'var(--healthy)' : 'var(--unhealthy)';
+        const sign = diff > 0 ? '+' : '';
+        qualityTrend = `<div style="text-align:center;margin-top:8px;font-size:12px;color:${color};font-weight:600">${arrow} ${sign}${diff}% полезного vs прошлые ${periodDays}д (было ${prevGPct}%)</div>`;
+      } else {
+        qualityTrend = `<div style="text-align:center;margin-top:8px;font-size:12px;color:var(--text-muted)">➡️ Стабильно vs прошлые ${periodDays}д</div>`;
+      }
+    }
+  }
+
   const MON = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
 
   const hasWeight = getWeightHistory().some(w => days.some(d => d.dateStr === w.date));
@@ -4424,7 +4467,7 @@ function renderStats() {
         <span style="color:var(--healthy)">● Дефицит</span> ·
         <span style="color:var(--unhealthy)">● Профицит</span>
         ${hasWeight ? ' · <span style="color:#9B59B6">┈ Вес</span>' : ''}
-        · ⚠️ Плохое самочувствие
+        · 🤒😐💚 Самочувствие
       </div>
       ${renderDeficitWeightChart(days, norm)}
       <div id="chart-day-detail"></div>
@@ -4477,6 +4520,7 @@ function renderStats() {
           <div style="font-size:11px;color:var(--text-muted)">⚠️ Вредное</div>
         </div>
       </div>
+      ${qualityTrend}
     </div>
 
     <div class="card">
@@ -4612,15 +4656,10 @@ function _renderChartDetail() {
   const dateStr = _chartDetailDate;
   const entries = getEntries().filter(e => e.date === dateStr);
   const acts = getActivities().filter(a => a.date === dateStr);
-  const wh = getWeightHistory();
-  const dayWeight = wh.find(w => w.date === dateStr);
-  const norm = +(localStorage.getItem('daily_norm') || 2000);
+  const dayWeight = getWeightHistory().find(w => w.date === dateStr);
   const bmr = +(localStorage.getItem('bmr') || 1800);
 
   const totalCal = entries.reduce((s, e) => s + (e.calories || 0), 0);
-  const totalP = entries.reduce((s, e) => s + (e.protein || 0), 0);
-  const totalF = entries.reduce((s, e) => s + (e.fat || 0), 0);
-  const totalC = entries.reduce((s, e) => s + (e.carbs || 0), 0);
   const actBurn = acts.reduce((s, a) => s + (a.burned || 0), 0);
   const totalBurned = actBurn + bmr;
   const balance = totalCal - totalBurned;
@@ -4633,50 +4672,29 @@ function _renderChartDetail() {
   const balColor = balance <= 0 ? 'var(--healthy)' : 'var(--unhealthy)';
   const balSign = balance > 0 ? '+' : '';
 
+  // Cheatmeals & alcohol
+  const cheats = entries.filter(e => e.isCheatmeal);
+  const alcLog = getAlcoholCheatLog().filter(a => a.date === dateStr && a.type === 'alcohol');
+
+  // Tags line
+  const tags = [];
+  tags.push(`<span>🍽 ${totalCal}</span>`);
+  tags.push(`<span>🔥 ${totalBurned}</span>`);
+  if (dayWeight) tags.push(`<span>⚖️ ${(+dayWeight.kg).toFixed(1)}</span>`);
+  if (cheats.length) tags.push(`<span>🍔 ${cheats.length} читмил</span>`);
+  if (alcLog.length) tags.push(`<span>🍷 ${alcLog.length} алко</span>`);
+  if (acts.length) tags.push(`<span>${acts.map(a => a.label.split(' ')[0]).join('')} ${actBurn}</span>`);
+
   let html = `<div style="background:var(--bg);border-radius:12px;padding:10px 12px;margin-top:8px;border:1px solid var(--border)">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <span style="font-weight:700;font-size:13px">📅 ${dateLabel}</span>
       <span style="font-weight:700;font-size:14px;color:${balColor}">${balSign}${balance} ккал</span>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--text-muted)">
-      <span>🍽 ${totalCal} ккал</span>
-      <span>🔥 −${totalBurned} (БМ ${bmr} + 🏃${actBurn})</span>
-      ${dayWeight ? `<span>⚖️ ${(+dayWeight.kg).toFixed(1)} кг</span>` : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px;color:var(--text-muted)">${tags.join('')}</div>
+    <div style="margin-top:6px;text-align:center">
+      <button onclick="goToDiaryDate('${dateStr}')" style="padding:5px 14px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">📖 Открыть в дневнике</button>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px 12px;font-size:11px;color:var(--text-muted);margin-top:4px">
-      <span>Б: ${totalP.toFixed(0)}г</span>
-      <span>Ж: ${totalF.toFixed(0)}г</span>
-      <span>У: ${totalC.toFixed(0)}г</span>
-      <span>Записей: ${entries.length}</span>
-    </div>`;
-
-  if (entries.length) {
-    const mealOrder = ['Завтрак','Обед','Ужин','Перекус'];
-    const mealGroups = {};
-    entries.forEach(e => { const m = e.meal || 'Другое'; if (!mealGroups[m]) mealGroups[m] = []; mealGroups[m].push(e); });
-    const sortedMeals = Object.keys(mealGroups).sort((a, b) => {
-      const ia = mealOrder.indexOf(a), ib = mealOrder.indexOf(b);
-      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-    });
-    html += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-size:11px">`;
-    sortedMeals.forEach(meal => {
-      const items = mealGroups[meal];
-      const mCal = items.reduce((s, e) => s + (e.calories || 0), 0);
-      html += `<div style="color:var(--text-muted);margin-bottom:2px"><b>${meal}</b>: ${items.map(e => esc(e.dishName)).join(', ')} — ${mCal} ккал</div>`;
-    });
-    html += `</div>`;
-  }
-
-  if (acts.length) {
-    html += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-size:11px;color:var(--text-muted)">`;
-    html += `<b>Активность</b>: ${acts.map(a => a.label + ' (' + (a.burned || 0) + ' ккал)').join(', ')}`;
-    html += `</div>`;
-  }
-
-  html += `<div style="margin-top:8px;text-align:center">
-    <button onclick="goToDiaryDate('${dateStr}')" style="padding:6px 16px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">📖 Открыть в дневнике</button>
   </div>`;
-  html += `</div>`;
 
   el.innerHTML = html;
   requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
