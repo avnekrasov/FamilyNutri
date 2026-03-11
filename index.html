@@ -3512,7 +3512,7 @@ async function showMissedDoseAdvice(name, dose) {
 let _bpScreenshot = null;
 let _bpRecognizedReadings = [];
 
-function showBPModal() {
+function showBPModal(presetDate) {
   if (calcAge(S.birthDate) < 18) { toast('Доступно только для 18+'); return; }
   _bpScreenshot = null;
   _bpRecognizedReadings = [];
@@ -3554,7 +3554,13 @@ function showBPModal() {
   overlay.addEventListener('click', e => { if (e.target === overlay) closeBPModal(); });
   // Pre-fill datetime
   const dtInput = document.getElementById('bp-datetime');
-  if (dtInput) { const now = new Date(); dtInput.value = fmtDate(now) + 'T' + fmtTime(now); }
+  if (dtInput) {
+    if (presetDate) {
+      dtInput.value = presetDate + 'T' + fmtTime(new Date());
+    } else {
+      const now = new Date(); dtInput.value = fmtDate(now) + 'T' + fmtTime(now);
+    }
+  }
 }
 
 function closeBPModal() { const m = $('bp-modal'); if (m) m.remove(); _bpScreenshot = null; _bpRecognizedReadings = []; }
@@ -3622,7 +3628,8 @@ function saveBPReading() {
     saveBPReadings(readings);
     closeBPModal();
     toast(`💓 Сохранено ${_bpRecognizedReadings.length} замеров`);
-    refreshMain();
+    try { refreshMain(); } catch(e) {}
+    try { renderDiary(); } catch(e) {}
     return;
   }
 
@@ -3641,7 +3648,17 @@ function saveBPReading() {
   saveBPReadings(readings);
   closeBPModal();
   toast('💓 Замер записан');
-  refreshMain();
+  try { refreshMain(); } catch(e) {}
+  try { renderDiary(); } catch(e) {}
+}
+
+function deleteBPReading(id) {
+  if (!confirm('Удалить замер давления?')) return;
+  const readings = getBPReadings().filter(r => r.id !== id);
+  saveBPReadings(readings);
+  toast('🗑 Замер удалён');
+  try { renderDiary(); } catch(e) {}
+  try { refreshMain(); } catch(e) {}
 }
 
 // ── BP Summary Card on Main Screen ──
@@ -4222,11 +4239,13 @@ function renderDiary() {
   const entries = getEntries().filter(e => e.date === dateStr);
   const dayActivities = getActivities().filter(a => a.date === dateStr);
   const dayWeight = getWeightHistory().find(w => w.date === dateStr);
+  const dayBP = getBPReadings().filter(r => r.date === dateStr);
+  const isAdult = calcAge(S.birthDate) >= 18;
   const t       = totals(entries);
   const cont    = $('diary-content');
 
-  if (!entries.length && !dayActivities.length && !dayWeight) {
-    cont.innerHTML = `
+  if (!entries.length && !dayActivities.length && !dayWeight && !dayBP.length) {
+    let emptyHtml = `
       <div class="totals-card">
         <div class="ttl">За этот день</div>
         <div class="cal-big">0 <span class="cal-unit">ккал</span></div>
@@ -4236,6 +4255,16 @@ function renderDiary() {
         <h3>Нет записей</h3>
         <p>За этот день ничего не записано</p>
       </div>`;
+    // Still show add-BP button for adults on past/today dates
+    if (isAdult && dateStr <= fmtDate(new Date())) {
+      emptyHtml += `<div class="diary-section">
+        <div class="diary-section-title">💓 Давление</div>
+        <div style="text-align:center;padding:8px">
+          <button class="btn btn-ghost" onclick="showBPModal('${dateStr}')" style="font-size:13px;padding:8px 16px;border-radius:10px">+ Добавить замер</button>
+        </div>
+      </div>`;
+    }
+    cont.innerHTML = emptyHtml;
     return;
   }
 
@@ -4350,6 +4379,37 @@ function renderDiary() {
         <button class="btn btn-ghost" onclick="editDiaryWeight('${diaryDateStr}', 0)" style="font-size:13px;padding:8px 16px;border-radius:10px">+ Добавить вес</button>
       </div>
     </div>`;
+  }
+
+  // Blood pressure readings for this day (18+ only)
+  if (isAdult) {
+    if (dayBP.length) {
+      const bpCategory = sys => sys >= 180 ? '🔴 Криз' : sys >= 140 ? '🟠 Гипертония' : sys >= 120 ? '🟡 Высокое норм.' : '🟢 Норма';
+      html += `<div class="diary-section">
+        <div class="diary-section-title">💓 Давление (${dayBP.length} ${dayBP.length === 1 ? 'замер' : dayBP.length < 5 ? 'замера' : 'замеров'})</div>
+        ${dayBP.sort((a, b) => (a.time || '').localeCompare(b.time || '')).map(r => `
+        <div class="meal-entry" style="border-left-color:${r.systolic >= 140 ? '#E53935' : r.systolic >= 120 ? '#FFA726' : '#4CAF50'}">
+          <div class="meal-thumb">💓</div>
+          <div class="meal-info">
+            <div class="meal-name" style="font-size:16px;font-weight:800">${r.systolic}/${r.diastolic}${r.pulse ? ` <span style="font-size:12px;font-weight:400;color:var(--text-muted)">пульс ${r.pulse}</span>` : ''}</div>
+            <div class="meal-time">${r.time || '—'} · ${bpCategory(r.systolic)}</div>
+          </div>
+          <div class="meal-right">
+            <button class="delete-btn" onclick="deleteBPReading(${r.id})" title="Удалить">🗑️</button>
+          </div>
+        </div>`).join('')}
+        <div style="text-align:center;padding:4px">
+          <button class="btn btn-ghost" onclick="showBPModal('${dateStr}')" style="font-size:12px;padding:6px 14px;border-radius:10px">+ Добавить ещё</button>
+        </div>
+      </div>`;
+    } else if (dateStr <= fmtDate(new Date())) {
+      html += `<div class="diary-section">
+        <div class="diary-section-title">💓 Давление</div>
+        <div style="text-align:center;padding:8px">
+          <button class="btn btn-ghost" onclick="showBPModal('${dateStr}')" style="font-size:13px;padding:8px 16px;border-radius:10px">+ Добавить замер</button>
+        </div>
+      </div>`;
+    }
   }
 
   cont.innerHTML = html;
