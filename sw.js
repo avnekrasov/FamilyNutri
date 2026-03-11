@@ -1,5 +1,5 @@
 // FamilyNutri Service Worker — offline cache
-const CACHE = 'familynutri-v37';
+const CACHE = 'familynutri-v38';
 const ASSETS = ['./index.html', './manifest.json'];
 
 self.addEventListener('install', e => {

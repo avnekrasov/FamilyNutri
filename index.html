@@ -3670,9 +3670,11 @@ function renderBPSummaryCard() {
   if (!readings.length) { card.innerHTML = ''; return; }
 
   const last = readings[0];
-  const cat = last.systolic >= 140 || last.diastolic >= 90 ? { label: 'Гипертония', color: 'var(--unhealthy)', icon: '🔴' }
-            : last.systolic >= 120 || last.diastolic >= 80 ? { label: 'Высокое нормальное', color: '#F39C12', icon: '🟡' }
-            : { label: 'Норма', color: 'var(--healthy)', icon: '🟢' };
+  const cat = last.systolic >= 180 || last.diastolic >= 110 ? { label: 'Криз', color: '#B71C1C', icon: '🔴' }
+            : last.systolic >= 140 || last.diastolic >= 90 ? { label: 'Гипертония', color: '#E53935', icon: '🟠' }
+            : last.systolic >= 130 || last.diastolic >= 85 ? { label: 'Высокое нормальное', color: '#FF9800', icon: '🟡' }
+            : last.systolic >= 120 || last.diastolic >= 80 ? { label: 'Нормальное', color: '#F9A825', icon: '🟡' }
+            : { label: 'Оптимальное', color: 'var(--healthy)', icon: '🟢' };
 
   // Trend
   let trend = '';
@@ -4384,7 +4386,7 @@ function renderDiary() {
   // Blood pressure readings for this day (18+ only)
   if (isAdult) {
     if (dayBP.length) {
-      const bpCategory = sys => sys >= 180 ? '🔴 Криз' : sys >= 140 ? '🟠 Гипертония' : sys >= 120 ? '🟡 Высокое норм.' : '🟢 Норма';
+      const bpCategory = sys => sys >= 180 ? '🔴 Криз' : sys >= 140 ? '🟠 Гипертония' : sys >= 130 ? '🟡 Высокое норм.' : sys >= 120 ? '🟡 Нормальное' : '🟢 Оптимальное';
       html += `<div class="diary-section">
         <div class="diary-section-title">💓 Давление (${dayBP.length} ${dayBP.length === 1 ? 'замер' : dayBP.length < 5 ? 'замера' : 'замеров'})</div>
         ${dayBP.sort((a, b) => (a.time || '').localeCompare(b.time || '')).map(r => `
@@ -4770,7 +4772,7 @@ function deleteEntry(id) {
 // ──────────────────────────────────────────
 // STATS SCREEN
 // ──────────────────────────────────────────
-function setStatsPeriod(p) { _statsPeriod = p; renderStats(); }
+function setStatsPeriod(p) { _statsPeriod = p; _bpDetailIdx = -1; renderStats(); }
 
 function renderDeficitWeightChart(days, norm) {
   if (days.length < 2) return '<div style="text-align:center;color:var(--text-muted);padding:12px">Недостаточно данных</div>';
@@ -4898,6 +4900,12 @@ function renderDeficitWeightChart(days, norm) {
   </svg>`;
 }
 
+let _bpDetailIdx = -1;
+function showBPChartDetail(idx) {
+  _bpDetailIdx = (_bpDetailIdx === idx) ? -1 : idx;
+  renderStats();
+}
+
 function renderBPChart(periodDays) {
   const readings = getBPReadings().sort((a, b) => (a.date + ' ' + (a.time || '')).localeCompare(b.date + ' ' + (b.time || '')));
   if (readings.length < 2) return '';
@@ -4963,12 +4971,14 @@ function renderBPChart(periodDays) {
     const pBot = clampY(yV(Math.max(60, minV)));
     if (pBot - pTop > 0) {
       pulseZoneSvg = `<rect x="${pad.l}" y="${pTop.toFixed(1)}" width="${cW}" height="${(pBot - pTop).toFixed(1)}" fill="#FF9800" fill-opacity="0.04" rx="2"/>`;
-      // Pulse range boundary lines
+      // Pulse range boundary lines with value labels
       if (60 > minV + 3 && 60 < maxV - 3) {
         pulseZoneSvg += `<line x1="${pad.l}" y1="${yV(60).toFixed(1)}" x2="${pad.l + cW}" y2="${yV(60).toFixed(1)}" stroke="#FF9800" stroke-width="0.4" stroke-dasharray="2,4" stroke-opacity="0.5"/>`;
+        pulseZoneSvg += `<text x="${pad.l - 3}" y="${(yV(60) + 3).toFixed(1)}" text-anchor="end" font-size="7" fill="#FF9800" fill-opacity="0.7" font-weight="600">♥60</text>`;
       }
       if (100 > minV + 3 && 100 < maxV - 3) {
         pulseZoneSvg += `<line x1="${pad.l}" y1="${yV(100).toFixed(1)}" x2="${pad.l + cW}" y2="${yV(100).toFixed(1)}" stroke="#FF9800" stroke-width="0.4" stroke-dasharray="2,4" stroke-opacity="0.5"/>`;
+        pulseZoneSvg += `<text x="${pad.l - 3}" y="${(yV(100) + 3).toFixed(1)}" text-anchor="end" font-size="7" fill="#FF9800" fill-opacity="0.7" font-weight="600">♥100</text>`;
       }
     }
   }
@@ -5036,17 +5046,57 @@ function renderBPChart(periodDays) {
   const catLabel = avgSys >= 140 ? '🔴 Гипертония' : avgSys >= 130 ? '🟠 Высокое норм.' : avgSys >= 120 ? '🟡 Нормальное' : '🟢 Оптимальное';
   const pulseCat = avgPulse ? (avgPulse < 60 ? '🔵 Брадикардия' : avgPulse > 100 ? '🔴 Тахикардия' : '🟢 Норма') : '';
 
+  // ── Selected point detail (vertical line + values) ──
+  let bpDetailSvg = '';
+  if (_bpDetailIdx >= 0 && _bpDetailIdx < n) {
+    const r = filtered[_bpDetailIdx];
+    const cx = xC(_bpDetailIdx);
+    const ySys = yV(r.systolic);
+    const yDia = yV(r.diastolic);
+    const hasPulse = r.pulse > 0;
+    const yPul = hasPulse ? yV(r.pulse) : 0;
+    const topY = Math.min(ySys, yDia, hasPulse ? yPul : ySys);
+    const botY = Math.max(ySys, yDia, hasPulse ? yPul : yDia);
+    // Vertical connecting line
+    bpDetailSvg = `<line x1="${cx.toFixed(1)}" y1="${(topY - 6).toFixed(1)}" x2="${cx.toFixed(1)}" y2="${(botY + 6).toFixed(1)}" stroke="var(--text)" stroke-width="1" stroke-opacity="0.3" stroke-dasharray="2,2"/>`;
+    // Highlight dots
+    bpDetailSvg += `<circle cx="${cx.toFixed(1)}" cy="${ySys.toFixed(1)}" r="5" fill="#E53935" stroke="white" stroke-width="1.5"/>`;
+    bpDetailSvg += `<circle cx="${cx.toFixed(1)}" cy="${yDia.toFixed(1)}" r="4.5" fill="#1E88E5" stroke="white" stroke-width="1.5"/>`;
+    if (hasPulse) bpDetailSvg += `<circle cx="${cx.toFixed(1)}" cy="${yPul.toFixed(1)}" r="3.5" fill="#FF9800" stroke="white" stroke-width="1"/>`;
+    // Value labels
+    const xOff = cx > pad.l + cW / 2 ? -8 : 8;
+    const txtAnc = cx > pad.l + cW / 2 ? 'end' : 'start';
+    bpDetailSvg += `<text x="${(cx + xOff).toFixed(1)}" y="${(ySys - 4).toFixed(1)}" text-anchor="${txtAnc}" font-size="9" font-weight="700" fill="#E53935">${r.systolic}</text>`;
+    bpDetailSvg += `<text x="${(cx + xOff).toFixed(1)}" y="${(yDia + 10).toFixed(1)}" text-anchor="${txtAnc}" font-size="9" font-weight="700" fill="#1E88E5">${r.diastolic}</text>`;
+    if (hasPulse) {
+      const pLabelY = yPul < ySys ? yPul - 4 : yPul + 10;
+      bpDetailSvg += `<text x="${(cx + xOff).toFixed(1)}" y="${pLabelY.toFixed(1)}" text-anchor="${txtAnc}" font-size="8" font-weight="600" fill="#FF9800">♥${r.pulse}</text>`;
+    }
+    // Column highlight
+    const colW = gap * 0.9;
+    bpDetailSvg = `<rect x="${(cx - colW/2).toFixed(1)}" y="${pad.t}" width="${colW.toFixed(1)}" height="${cH}" fill="var(--primary)" fill-opacity="0.08" rx="3"/>` + bpDetailSvg;
+  }
+
+  // ── Hit boxes for tap interaction ──
+  const bpHitBoxes = filtered.map((r, i) => {
+    const cx = xC(i);
+    const colW = gap * 0.9;
+    return `<rect x="${(cx - colW/2).toFixed(1)}" y="${(pad.t - 10)}" width="${colW.toFixed(1)}" height="${(cH + pad.b + 6)}" fill="transparent" cursor="pointer" onclick="showBPChartDetail(${i})" style="touch-action:manipulation"/>`;
+  }).join('');
+
   const svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;max-height:280px">
     ${zoneSvg}
     ${pulseZoneSvg}
     ${threshLines}
     <line x1="${pad.l}" y1="${pad.t + cH}" x2="${pad.l + cW}" y2="${pad.t + cH}" stroke="var(--border)" stroke-width="0.5"/>
     <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${pad.t + cH}" stroke="var(--border)" stroke-width="0.5"/>
+    ${bpDetailSvg}
     ${sysLine}${sysDots}
     ${diaLine}${diaDots}
     ${pulseLine}${pulseDots}
     ${xLabels}${yLabels}
-    ${lastLabels}
+    ${_bpDetailIdx < 0 ? lastLabels : ''}
+    ${bpHitBoxes}
   </svg>`;
 
   return `<div class="card">
@@ -5064,6 +5114,26 @@ function renderBPChart(periodDays) {
       ${allPulse.length ? '<span style="background:#FF98001a;color:#FF9800;padding:2px 5px;border-radius:4px;font-weight:600">♥ 60–100 норма</span>' : ''}
     </div>
     ${svg}
+    ${_bpDetailIdx >= 0 && _bpDetailIdx < n ? (() => {
+      const r = filtered[_bpDetailIdx];
+      const dd = new Date(r.date + 'T12:00:00');
+      const dLabel = `${dd.getDate()} ${MON[dd.getMonth()]}${r.time ? ', ' + r.time : ''}`;
+      const sc = r.systolic >= 180 ? '#B71C1C' : r.systolic >= 140 ? '#E53935' : r.systolic >= 130 ? '#FF9800' : r.systolic >= 120 ? '#F9A825' : '#4CAF50';
+      const sl = r.systolic >= 180 ? 'Криз' : r.systolic >= 140 ? 'Гипертония' : r.systolic >= 130 ? 'Выс. норм.' : r.systolic >= 120 ? 'Нормальное' : 'Оптимальное';
+      const pc = r.pulse ? (r.pulse < 60 ? '#1E88E5' : r.pulse > 100 ? '#E53935' : '#FF9800') : '';
+      const pl = r.pulse ? (r.pulse < 60 ? 'Брадикардия' : r.pulse > 100 ? 'Тахикардия' : 'Норма') : '';
+      return `<div style="background:var(--bg);border-radius:10px;padding:8px 12px;margin-top:6px;border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-weight:700;font-size:13px">📅 ${dLabel}</span>
+          <span style="font-size:10px;padding:2px 6px;border-radius:6px;background:${sc}1a;color:${sc};font-weight:600">${sl}</span>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:4px;font-size:13px">
+          <span style="font-weight:700;color:#E53935">▲ ${r.systolic}</span>
+          <span style="font-weight:700;color:#1E88E5">▼ ${r.diastolic}</span>
+          ${r.pulse ? `<span style="font-weight:600;color:${pc}">♥ ${r.pulse} <span style="font-size:10px;font-weight:400">${pl}</span></span>` : ''}
+        </div>
+      </div>`;
+    })() : ''}
     <div style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
       <div style="text-align:center;flex:1">
         <div style="font-size:18px;font-weight:800;color:${avgSys >= 140 ? '#E53935' : avgSys >= 130 ? '#FF9800' : avgSys >= 120 ? '#F9A825' : '#4CAF50'}">${avgSys}/${avgDia}</div>
