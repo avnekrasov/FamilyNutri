@@ -3694,8 +3694,8 @@ function renderBPSummaryCard() {
   card.innerHTML = `<div class="card" style="padding:12px">
     <div style="display:flex;align-items:center;justify-content:space-between">
       <div>
-        <span style="font-size:20px;font-weight:800">${last.systolic}/${last.diastolic}</span>
-        <span style="font-size:13px;color:var(--text-muted);margin-left:6px">пульс ${last.pulse || '—'}</span>
+        <span style="font-size:20px;font-weight:800;color:#E53935">${last.systolic}</span><span style="font-size:20px;font-weight:800;color:var(--text-muted)">/</span><span style="font-size:20px;font-weight:800;color:#1E88E5">${last.diastolic}</span>
+        <span style="font-size:13px;color:#FF9800;margin-left:6px;font-weight:600">♥ ${last.pulse || '—'}</span>
         ${trend}
       </div>
       <span style="font-size:11px;padding:3px 8px;border-radius:8px;background:${cat.color}20;color:${cat.color};font-weight:600">${cat.icon} ${cat.label}</span>
