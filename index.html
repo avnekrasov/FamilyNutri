@@ -579,8 +579,12 @@ body {
     <div id="vpn-warning" style="display:none;background:#FFF3CD;border:1px solid #FFEAA7;border-radius:12px;padding:12px;margin-bottom:10px;font-size:13px;color:#856404"></div>
     <!-- MORNING CHECKLIST -->
     <div id="morning-checklist-card"></div>
+    <!-- MEDICATION CHECKLIST -->
+    <div id="medication-checklist-card"></div>
     <!-- ALCOHOL/CHEAT BRIEF -->
     <div id="alcohol-cheat-brief"></div>
+    <!-- BP SUMMARY -->
+    <div id="bp-summary-card"></div>
     <!-- API Counter -->
     <div style="text-align:right;margin-bottom:4px">
       <span id="api-counter" style="display:none;font-size:11px;color:var(--text-muted)"></span>
@@ -654,6 +658,12 @@ body {
           <div style="font-size:13px;font-weight:700;color:var(--text-muted);text-align:center">🍷</div>
           <button class="btn btn-ghost" onclick="showAlcoholModal()" style="flex:1;display:flex;align-items:center;justify-content:center;font-size:24px;border-radius:16px;min-height:70px;padding:0;border:2px dashed var(--border)">🍷</button>
           <div style="font-size:10px;color:var(--text-muted);text-align:center">Алкоголь</div>
+        </div>
+        <!-- BP (18+ only) -->
+        <div id="bp-btn-block" style="display:none;flex-direction:column;gap:8px;width:60px">
+          <div style="font-size:13px;font-weight:700;color:var(--text-muted);text-align:center">💓</div>
+          <button class="btn btn-ghost" onclick="showBPModal()" style="flex:1;display:flex;align-items:center;justify-content:center;font-size:24px;border-radius:16px;min-height:70px;padding:0;border:2px dashed var(--border)">💓</button>
+          <div style="font-size:10px;color:var(--text-muted);text-align:center">Давление</div>
         </div>
       </div>
       <button class="btn btn-ghost" onclick="toggleYesterdayMode()" id="yesterday-toggle-btn" style="width:100%;padding:6px;font-size:12px;border-radius:10px;margin-top:8px">📅 Записать за вчера</button>
@@ -1238,6 +1248,13 @@ body {
     </div>
 
     <div class="card">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:10px">💊 Препараты</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Настрой приём лекарств для ежедневных напоминаний</p>
+      <div id="medications-list"></div>
+      <button class="btn btn-secondary" style="margin-top:8px;font-size:13px;width:100%" onclick="showMedicationEditor()">➕ Добавить препарат</button>
+    </div>
+
+    <div class="card">
       <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">🔑 API настройки</h3>
       <div class="form-group">
         <label>API ключ Gemini</label>
@@ -1479,6 +1496,7 @@ function nav(id) {
     updateNormsInfo();
     updateAuthUI();
     renderSettingsGoals();
+    renderMedicationsList();
   }
 }
 
@@ -1558,7 +1576,18 @@ function refreshMain() {
 
   // Show alcohol button only for 18+
   const alcBtn = $('alcohol-btn-block');
-  if (alcBtn) alcBtn.style.display = calcAge(S.birthDate) >= 18 ? 'flex' : 'none';
+  const isAdult = calcAge(S.birthDate) >= 18;
+  if (alcBtn) alcBtn.style.display = isAdult ? 'flex' : 'none';
+
+  // Show BP button only for 18+
+  const bpBtn = $('bp-btn-block');
+  if (bpBtn) bpBtn.style.display = isAdult ? 'flex' : 'none';
+
+  // Medication checklist
+  renderMedicationChecklist();
+
+  // BP summary card
+  renderBPSummaryCard();
 
   const entries = todayEntries();
   const t = totals(entries);
@@ -2964,6 +2993,16 @@ function getAlcoholCheatLog() {
   catch { return []; }
 }
 
+// ── MEDICATIONS ──
+function getMedications() { try { return JSON.parse(localStorage.getItem('medications') || '[]'); } catch { return []; } }
+function getMedicationLog() { try { return JSON.parse(localStorage.getItem('medication_log') || '{}'); } catch { return {}; } }
+function saveMedications(m) { localStorage.setItem('medications', JSON.stringify(m)); scheduleCloudSync(); }
+function saveMedicationLog(l) { localStorage.setItem('medication_log', JSON.stringify(l)); scheduleCloudSync(); }
+
+// ── BLOOD PRESSURE ──
+function getBPReadings() { try { return JSON.parse(localStorage.getItem('bp_readings') || '[]'); } catch { return []; } }
+function saveBPReadings(r) { localStorage.setItem('bp_readings', JSON.stringify(r)); scheduleCloudSync(); }
+
 // ── Retroactive detection of alcohol & cheatmeals from existing entries ──
 const ALC_KEYWORDS = ['пиво','пивом','пивко','пивас','вино','вином','винишко','вина',
   'водка','водки','водкой','виски','коньяк','коньяком','коньяка',
@@ -3260,6 +3299,393 @@ function saveMorningChecklist() {
 }
 
 // ──────────────────────────────────────────
+// MEDICATIONS TRACKING
+// ──────────────────────────────────────────
+const MED_METHODS = { after_meal: '🍽 После еды', empty_stomach: '💊 Натощак', with_water: '💧 С водой' };
+
+function renderMedicationsList() {
+  const cont = $('medications-list');
+  if (!cont) return;
+  const meds = getMedications();
+  if (!meds.length) { cont.innerHTML = '<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:8px">Нет добавленных препаратов</div>'; return; }
+  cont.innerHTML = meds.map(m => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg);border-radius:12px;margin-bottom:8px">
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:14px">${esc(m.name)} <span style="font-weight:400;color:var(--text-muted)">${esc(m.dose)}</span></div>
+        <div style="font-size:11px;color:var(--text-muted)">${m.times.join(', ')} · ${MED_METHODS[m.method] || m.method}</div>
+      </div>
+      <button onclick="showMedicationEditor(${m.id})" style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px">✏️</button>
+      <button onclick="deleteMedication(${m.id})" style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px">🗑️</button>
+    </div>`).join('');
+}
+
+function showMedicationEditor(editId) {
+  const meds = getMedications();
+  const existing = editId ? meds.find(m => m.id === editId) : null;
+  const overlay = document.createElement('div');
+  overlay.id = 'med-editor-modal';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  const selTimes = existing ? existing.times : [];
+  overlay.innerHTML = `<div style="background:var(--card);border-radius:20px;padding:20px;max-width:360px;width:100%;max-height:90vh;overflow-y:auto">
+    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">💊 ${existing ? 'Редактировать' : 'Добавить'} препарат</h3>
+    <div class="form-group" style="margin-bottom:12px">
+      <label style="font-size:12px;font-weight:600">Название</label>
+      <input type="text" id="med-name" value="${existing ? esc(existing.name) : ''}" placeholder="Напр: Аллопуринол" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text)">
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label style="font-size:12px;font-weight:600">Дозировка</label>
+      <input type="text" id="med-dose" value="${existing ? esc(existing.dose) : ''}" placeholder="Напр: 100мг" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text)">
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label style="font-size:12px;font-weight:600">Время приёма</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px" id="med-times-chips">
+        ${['07:00','08:00','09:00','12:00','14:00','18:00','20:00','22:00'].map(t =>
+          `<button class="activity-chip${selTimes.includes(t) ? ' selected' : ''}" onclick="toggleMedTime(this,'${t}')" style="font-size:12px;padding:6px 10px">${t}</button>`
+        ).join('')}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="time" id="med-custom-time" style="flex:1;padding:8px;border:2px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text)">
+        <button class="btn btn-ghost" onclick="addCustomMedTime()" style="padding:8px 12px;font-size:12px">+ Добавить</button>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label style="font-size:12px;font-weight:600">Способ приёма</label>
+      <select id="med-method" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--card);color:var(--text)">
+        <option value="after_meal" ${existing?.method === 'after_meal' ? 'selected' : ''}>🍽 После еды</option>
+        <option value="empty_stomach" ${existing?.method === 'empty_stomach' ? 'selected' : ''}>💊 Натощак</option>
+        <option value="with_water" ${existing?.method === 'with_water' ? 'selected' : ''}>💧 Запивать большим количеством воды</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeMedEditor()">Отмена</button>
+      <button class="btn btn-primary" style="flex:1" onclick="saveMedication(${editId || 0})">💾 Сохранить</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeMedEditor(); });
+}
+
+let _medSelectedTimes = [];
+function toggleMedTime(btn, time) {
+  btn.classList.toggle('selected');
+  // Collect all selected times from chips
+  _medSelectedTimes = Array.from(document.querySelectorAll('#med-times-chips .activity-chip.selected')).map(b => b.textContent.trim());
+}
+function addCustomMedTime() {
+  const input = $('med-custom-time');
+  if (!input || !input.value) return;
+  const t = input.value;
+  const cont = $('med-times-chips');
+  // Check if already exists
+  if (cont.querySelector(`[onclick*="'${t}'"]`)) { toast('Время уже добавлено'); return; }
+  const btn = document.createElement('button');
+  btn.className = 'activity-chip selected';
+  btn.style.cssText = 'font-size:12px;padding:6px 10px';
+  btn.textContent = t;
+  btn.onclick = function() { this.classList.toggle('selected'); };
+  cont.appendChild(btn);
+  input.value = '';
+}
+function closeMedEditor() { const m = $('med-editor-modal'); if (m) m.remove(); }
+
+function saveMedication(editId) {
+  const name = $('med-name')?.value?.trim();
+  const dose = $('med-dose')?.value?.trim();
+  const method = $('med-method')?.value || 'after_meal';
+  if (!name) { toast('Укажи название препарата'); return; }
+  // Collect selected times
+  const times = Array.from(document.querySelectorAll('#med-times-chips .activity-chip.selected')).map(b => b.textContent.trim()).sort();
+  if (!times.length) { toast('Выбери хотя бы одно время приёма'); return; }
+  const meds = getMedications();
+  if (editId) {
+    const idx = meds.findIndex(m => m.id === editId);
+    if (idx >= 0) { meds[idx] = { ...meds[idx], name, dose, times, method }; }
+  } else {
+    meds.push({ id: Date.now(), name, dose, times, method });
+  }
+  saveMedications(meds);
+  closeMedEditor();
+  renderMedicationsList();
+  renderMedicationChecklist();
+  toast('💊 Препарат сохранён');
+}
+
+function deleteMedication(id) {
+  if (!confirm('Удалить препарат?')) return;
+  const meds = getMedications().filter(m => m.id !== id);
+  saveMedications(meds);
+  renderMedicationsList();
+  renderMedicationChecklist();
+  toast('🗑 Препарат удалён');
+}
+
+// ── Medication checklist on main screen ──
+function renderMedicationChecklist() {
+  const card = $('medication-checklist-card');
+  if (!card) return;
+  const meds = getMedications();
+  if (!meds.length) { card.innerHTML = ''; return; }
+
+  const today = fmtDate(new Date());
+  const log = getMedicationLog()[today] || {};
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  // Build list of all scheduled doses for today
+  const doses = [];
+  meds.forEach(m => {
+    m.times.forEach(t => {
+      const [h, min] = t.split(':').map(Number);
+      const tMin = h * 60 + (min || 0);
+      const key = `${m.id}_${t}`;
+      const taken = log[key]?.taken || false;
+      const inWindow = Math.abs(nowMin - tMin) <= 120 || (nowMin < tMin && tMin - nowMin <= 120);
+      doses.push({ ...m, scheduledTime: t, tMin, key, taken, inWindow, urgent: !taken && Math.abs(nowMin - tMin) <= 30 });
+    });
+  });
+  doses.sort((a, b) => a.tMin - b.tMin);
+
+  // Show all today's doses
+  const allTaken = doses.every(d => d.taken);
+  const takenCount = doses.filter(d => d.taken).length;
+
+  let html = `<div class="card" style="padding:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <h3 style="font-size:15px;font-weight:800">💊 Препараты</h3>
+      <span style="font-size:11px;color:var(--text-muted)">${takenCount}/${doses.length} принято</span>
+    </div>`;
+
+  doses.forEach(d => {
+    const methodHint = MED_METHODS[d.method] || '';
+    const isPast = d.tMin < nowMin - 120;
+    const opacity = d.taken ? '0.6' : (isPast && !d.taken ? '0.8' : '1');
+    const bg = d.urgent && !d.taken ? 'rgba(255,111,97,0.08)' : 'transparent';
+    html += `<div style="display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px;background:${bg};opacity:${opacity}">
+      <input type="checkbox" ${d.taken ? 'checked' : ''} onchange="toggleMedicationTaken('${d.key}')" style="width:20px;height:20px;accent-color:var(--primary);cursor:pointer;flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;${d.taken ? 'text-decoration:line-through;color:var(--text-muted)' : ''}">${esc(d.name)} <span style="font-weight:400;color:var(--text-muted)">${esc(d.dose)}</span></div>
+        <div style="font-size:11px;color:var(--text-muted)">${d.scheduledTime} · ${methodHint}</div>
+      </div>
+      ${!d.taken ? `<button onclick="showMissedDoseAdvice('${esc(d.name)}','${esc(d.dose)}')" style="background:none;border:none;font-size:10px;color:var(--unhealthy);cursor:pointer;white-space:nowrap;padding:4px">Пропустил</button>` : ''}
+    </div>`;
+  });
+
+  html += `</div>`;
+  card.innerHTML = html;
+}
+
+function toggleMedicationTaken(key) {
+  const today = fmtDate(new Date());
+  const log = getMedicationLog();
+  if (!log[today]) log[today] = {};
+  const current = log[today][key];
+  if (current?.taken) { delete log[today][key]; }
+  else { log[today][key] = { taken: true, ts: Date.now() }; }
+  saveMedicationLog(log);
+  renderMedicationChecklist();
+}
+
+async function showMissedDoseAdvice(name, dose) {
+  if (!S.apiKey) { toast('Нужен API ключ для AI-совета'); return; }
+  toast('🤖 Генерирую совет...');
+  try {
+    const prompt = `Пользователь пропустил приём препарата "${name}" ${dose}. Дай КРАТКИЙ совет (2-3 предложения): что делать при пропуске этого конкретного лекарства. Учти типичные инструкции для этого препарата. Ответь на русском, дружелюбно.`;
+    const text = await geminiRequest(prompt);
+    // Show in expandable overlay
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+    overlay.innerHTML = `<div style="background:var(--card);border-radius:20px;padding:20px;max-width:360px;width:100%">
+      <h3 style="font-size:15px;font-weight:800;margin-bottom:10px">⚠️ Пропуск: ${esc(name)}</h3>
+      <div style="font-size:14px;line-height:1.6;color:var(--text)">${text.replace(/\n/g, '<br>')}</div>
+      <button class="btn btn-primary" style="width:100%;margin-top:14px" onclick="this.closest('div[style*=fixed]').remove()">Понятно</button>
+    </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  } catch (err) {
+    toast('Ошибка: ' + (err.message || '').slice(0, 40));
+  }
+}
+
+// ──────────────────────────────────────────
+// BLOOD PRESSURE TRACKING (18+)
+// ──────────────────────────────────────────
+let _bpScreenshot = null;
+let _bpRecognizedReadings = [];
+
+function showBPModal() {
+  if (calcAge(S.birthDate) < 18) { toast('Доступно только для 18+'); return; }
+  _bpScreenshot = null;
+  _bpRecognizedReadings = [];
+  const overlay = document.createElement('div');
+  overlay.id = 'bp-modal';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = `<div style="background:var(--card);border-radius:20px;padding:20px;max-width:360px;width:100%;max-height:90vh;overflow-y:auto">
+    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">💓 Добавить замер давления</h3>
+    <div style="margin-bottom:14px">
+      <button class="btn btn-secondary" style="width:100%;font-size:14px" onclick="$('bp-photo-input').click()">📷 Скриншот / фото тонометра</button>
+      <input type="file" id="bp-photo-input" accept="image/*" style="display:none" onchange="analyzeBPPhoto(event)">
+      <div id="bp-photo-status" style="display:none;margin-top:8px;font-size:12px;color:var(--text-muted);text-align:center"></div>
+    </div>
+    <div style="text-align:center;font-size:12px;color:var(--text-muted);margin-bottom:10px">или введи вручную</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+      <div>
+        <label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">Верхнее</label>
+        <input type="number" id="bp-sys" placeholder="120" inputmode="numeric" min="60" max="250" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:var(--bg);color:var(--text);text-align:center">
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">Нижнее</label>
+        <input type="number" id="bp-dia" placeholder="80" inputmode="numeric" min="30" max="150" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:var(--bg);color:var(--text);text-align:center">
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">Пульс</label>
+        <input type="number" id="bp-pulse" placeholder="70" inputmode="numeric" min="30" max="220" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:var(--bg);color:var(--text);text-align:center">
+      </div>
+    </div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">Дата и время</label>
+      <input type="datetime-local" id="bp-datetime" style="width:100%;padding:10px;border:2px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text)">
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeBPModal()">Отмена</button>
+      <button class="btn btn-primary" style="flex:1" onclick="saveBPReading()">💾 Записать</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeBPModal(); });
+  // Pre-fill datetime
+  const dtInput = document.getElementById('bp-datetime');
+  if (dtInput) { const now = new Date(); dtInput.value = fmtDate(now) + 'T' + fmtTime(now); }
+}
+
+function closeBPModal() { const m = $('bp-modal'); if (m) m.remove(); _bpScreenshot = null; _bpRecognizedReadings = []; }
+
+async function analyzeBPPhoto(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  if (!S.apiKey) { toast('Нужен API ключ'); return; }
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      const compressed = await compressImg(e.target.result, 800, 0.8);
+      const status = $('bp-photo-status');
+      if (status) { status.style.display = 'block'; status.textContent = '⏳ Распознаю показания...'; }
+      const prompt = `Это фото экрана тонометра или скриншот приложения для измерения артериального давления.
+Распознай ВСЕ показания давления на изображении.
+Ответь ТОЛЬКО JSON без markdown:
+{"readings":[{"systolic":число,"diastolic":число,"pulse":число_или_0,"time":"HH:MM_или_пусто"}]}
+Бери числа ТОЧНО с изображения. Если несколько замеров — включи все. Если пульс не виден — ставь 0.`;
+      const raw = await geminiRequest(prompt, compressed);
+      const result = parseAIJson(raw);
+      const readings = result.readings || (result.systolic ? [result] : []);
+      if (!readings.length || !readings[0].systolic) { if (status) status.textContent = '❌ Не удалось распознать, введи вручную'; return; }
+
+      _bpRecognizedReadings = readings;
+      // Fill last reading into fields
+      const last = readings[readings.length - 1];
+      if (last.systolic > 0) $('bp-sys').value = last.systolic;
+      if (last.diastolic > 0) $('bp-dia').value = last.diastolic;
+      if (last.pulse > 0) $('bp-pulse').value = last.pulse;
+      // Store thumbnail
+      _bpScreenshot = compressed.length > 50000 ? null : compressed; // skip if too large
+      if (status) {
+        status.textContent = readings.length > 1
+          ? `✅ Распознано ${readings.length} замеров — все будут сохранены`
+          : `✅ Распознано: ${last.systolic}/${last.diastolic}${last.pulse ? ', пульс ' + last.pulse : ''} — проверь и сохрани`;
+      }
+      toast('📷 Показания распознаны');
+    } catch (err) {
+      toast('Ошибка: ' + (err.message || '').slice(0, 40));
+      const status = $('bp-photo-status');
+      if (status) status.textContent = '❌ Не распознано, введи вручную';
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+function saveBPReading() {
+  const readings = getBPReadings();
+  const dtVal = $('bp-datetime')?.value || '';
+  const defaultDate = dtVal ? dtVal.slice(0, 10) : fmtDate(new Date());
+  const defaultTime = dtVal ? dtVal.slice(11, 16) : fmtTime(new Date());
+
+  if (_bpRecognizedReadings.length > 1) {
+    // Save all recognized readings
+    _bpRecognizedReadings.forEach(r => {
+      if (r.systolic < 60 || r.systolic > 250 || r.diastolic < 30 || r.diastolic > 150) return;
+      readings.push({
+        id: Date.now() + Math.random() * 1000 | 0,
+        date: defaultDate, time: r.time || defaultTime,
+        systolic: r.systolic, diastolic: r.diastolic, pulse: r.pulse || 0,
+        source: 'screenshot', screenshot: null
+      });
+    });
+    saveBPReadings(readings);
+    closeBPModal();
+    toast(`💓 Сохранено ${_bpRecognizedReadings.length} замеров`);
+    refreshMain();
+    return;
+  }
+
+  // Single manual/recognized entry
+  const sys = parseInt($('bp-sys')?.value) || 0;
+  const dia = parseInt($('bp-dia')?.value) || 0;
+  const pulse = parseInt($('bp-pulse')?.value) || 0;
+  if (!sys || !dia) { toast('Укажи верхнее и нижнее давление'); return; }
+  if (sys < 60 || sys > 250 || dia < 30 || dia > 150) { toast('Проверь значения давления'); return; }
+
+  readings.push({
+    id: Date.now(), date: defaultDate, time: defaultTime,
+    systolic: sys, diastolic: dia, pulse,
+    source: _bpScreenshot ? 'screenshot' : 'manual', screenshot: null
+  });
+  saveBPReadings(readings);
+  closeBPModal();
+  toast('💓 Замер записан');
+  refreshMain();
+}
+
+// ── BP Summary Card on Main Screen ──
+function renderBPSummaryCard() {
+  const card = $('bp-summary-card');
+  if (!card) return;
+  if (calcAge(S.birthDate) < 18) { card.innerHTML = ''; return; }
+  const readings = getBPReadings().sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+  if (!readings.length) { card.innerHTML = ''; return; }
+
+  const last = readings[0];
+  const cat = last.systolic >= 140 || last.diastolic >= 90 ? { label: 'Гипертония', color: 'var(--unhealthy)', icon: '🔴' }
+            : last.systolic >= 120 || last.diastolic >= 80 ? { label: 'Высокое нормальное', color: '#F39C12', icon: '🟡' }
+            : { label: 'Норма', color: 'var(--healthy)', icon: '🟢' };
+
+  // Trend
+  let trend = '';
+  if (readings.length >= 3) {
+    const prev3 = readings.slice(1, 4);
+    const avgPrev = Math.round(prev3.reduce((s, r) => s + r.systolic, 0) / prev3.length);
+    const diff = last.systolic - avgPrev;
+    if (diff > 5) trend = '<span style="color:var(--unhealthy)">↑</span>';
+    else if (diff < -5) trend = '<span style="color:var(--healthy)">↓</span>';
+    else trend = '<span style="color:var(--text-muted)">→</span>';
+  }
+
+  const d = new Date(last.date + 'T12:00:00');
+  const monthNames = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+  const dateLabel = `${d.getDate()} ${monthNames[d.getMonth()]}, ${last.time}`;
+
+  card.innerHTML = `<div class="card" style="padding:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <span style="font-size:20px;font-weight:800">${last.systolic}/${last.diastolic}</span>
+        <span style="font-size:13px;color:var(--text-muted);margin-left:6px">пульс ${last.pulse || '—'}</span>
+        ${trend}
+      </div>
+      <span style="font-size:11px;padding:3px 8px;border-radius:8px;background:${cat.color}20;color:${cat.color};font-weight:600">${cat.icon} ${cat.label}</span>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Замер ${dateLabel} · ${readings.length} записей</div>
+  </div>`;
+}
+
+// ──────────────────────────────────────────
 // ALCOHOL / CHEAT TRACKING
 // ──────────────────────────────────────────
 function showAlcoholModal() {
@@ -3498,6 +3924,21 @@ function buildWellnessContext() {
   const tAlc = alcLog.filter(a => a.date === tDate && a.type === 'alcohol');
   if (tAlc.length) {
     lines.push(`Сегодня алкоголь: ${tAlc.map(a => `${a.name} ${a.amount || ''}`).join(', ')}`);
+  }
+  // Blood pressure readings (last 5)
+  const bpReadings = getBPReadings().sort((a, b) => (b.date + ' ' + (b.time || '')).localeCompare(a.date + ' ' + (a.time || '')));
+  if (bpReadings.length) {
+    const recent = bpReadings.slice(0, 5);
+    lines.push('Последние замеры давления: ' + recent.map(r => `${r.date} ${r.systolic}/${r.diastolic}${r.pulse ? ' пульс ' + r.pulse : ''}`).join('; '));
+    const lastR = recent[0];
+    if (lastR.systolic >= 140 || lastR.diastolic >= 90) {
+      lines.push('⚠️ Последнее давление повышенное! Учитывай это в рекомендациях по питанию (меньше соли, больше калия)');
+    }
+  }
+  // Medications
+  const meds = getMedications();
+  if (meds.length) {
+    lines.push('Принимаемые препараты: ' + meds.map(m => `${m.name}${m.dose ? ' ' + m.dose : ''}`).join(', '));
   }
   return lines.join('\n');
 }
@@ -4397,6 +4838,150 @@ function renderDeficitWeightChart(days, norm) {
   </svg>`;
 }
 
+function renderBPChart(periodDays) {
+  const readings = getBPReadings().sort((a, b) => (a.date + ' ' + (a.time || '')).localeCompare(b.date + ' ' + (b.time || '')));
+  if (readings.length < 2) return '';
+
+  const cutoff = periodDays ? fmtDate(new Date(Date.now() - periodDays * 86400000)) : null;
+  const filtered = cutoff ? readings.filter(r => r.date >= cutoff) : readings;
+  if (filtered.length < 2) return '';
+
+  const W = 320, H = 200;
+  const pad = { t: 16, b: 28, l: 36, r: 12 };
+  const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
+  const n = filtered.length;
+
+  // Data ranges
+  const allSys = filtered.map(r => r.systolic);
+  const allDia = filtered.map(r => r.diastolic);
+  const allPulse = filtered.map(r => r.pulse).filter(p => p > 0);
+  const allVals = [...allSys, ...allDia, ...(allPulse.length ? allPulse : [])];
+  const minV = Math.min(...allVals) - 5;
+  const maxV = Math.max(...allVals) + 5;
+  const range = maxV - minV || 1;
+
+  const gap = cW / n;
+  const xC = i => pad.l + gap * i + gap / 2;
+  const yV = v => pad.t + cH - ((v - minV) / range) * cH;
+
+  const MON = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+
+  // Normal zone band (systolic 90-120 green area)
+  const normTopY = yV(Math.min(140, maxV));
+  const normBotY = yV(Math.max(60, minV));
+  const greenTopY = yV(Math.min(120, maxV));
+  const greenBotY = yV(Math.max(80, minV));
+
+  // Green zone for normal range
+  const greenZone = `<rect x="${pad.l}" y="${greenTopY.toFixed(1)}" width="${cW}" height="${Math.max(0, greenBotY - greenTopY).toFixed(1)}" fill="#4CAF50" fill-opacity="0.08" rx="2"/>`;
+
+  // Hypertension threshold line at 140
+  const thresh140 = maxV >= 135 ? `<line x1="${pad.l}" y1="${yV(140).toFixed(1)}" x2="${pad.l + cW}" y2="${yV(140).toFixed(1)}" stroke="#E53935" stroke-width="0.8" stroke-dasharray="4,3"/>
+    <text x="${pad.l + cW + 2}" y="${(yV(140) + 3).toFixed(1)}" font-size="7" fill="#E53935" text-anchor="start">140</text>` : '';
+
+  // Systolic line (red)
+  const sysPoints = filtered.map((r, i) => `${xC(i).toFixed(1)},${yV(r.systolic).toFixed(1)}`);
+  const sysLine = `<path d="M ${sysPoints.join(' L ')}" fill="none" stroke="#E53935" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+
+  // Systolic dots with category coloring
+  const sysDots = filtered.map((r, i) => {
+    const color = r.systolic >= 140 ? '#E53935' : r.systolic >= 120 ? '#FFA726' : '#4CAF50';
+    return `<circle cx="${xC(i).toFixed(1)}" cy="${yV(r.systolic).toFixed(1)}" r="3" fill="${color}" stroke="white" stroke-width="0.8"/>`;
+  }).join('');
+
+  // Diastolic line (blue)
+  const diaPoints = filtered.map((r, i) => `${xC(i).toFixed(1)},${yV(r.diastolic).toFixed(1)}`);
+  const diaLine = `<path d="M ${diaPoints.join(' L ')}" fill="none" stroke="#1E88E5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+
+  const diaDots = filtered.map((r, i) => {
+    return `<circle cx="${xC(i).toFixed(1)}" cy="${yV(r.diastolic).toFixed(1)}" r="2.5" fill="#1E88E5" stroke="white" stroke-width="0.8"/>`;
+  }).join('');
+
+  // Pulse line (orange dashed) — only if pulse data exists
+  let pulseLine = '', pulseDots = '';
+  if (allPulse.length >= 2) {
+    const pp = [];
+    filtered.forEach((r, i) => {
+      if (r.pulse > 0) pp.push({ i, v: r.pulse });
+    });
+    if (pp.length >= 2) {
+      const pPoints = pp.map(p => `${xC(p.i).toFixed(1)},${yV(p.v).toFixed(1)}`);
+      pulseLine = `<path d="M ${pPoints.join(' L ')}" fill="none" stroke="#FF9800" stroke-width="1.5" stroke-dasharray="4,3" stroke-linecap="round"/>`;
+      pulseDots = pp.map(p => `<circle cx="${xC(p.i).toFixed(1)}" cy="${yV(p.v).toFixed(1)}" r="2" fill="#FF9800" stroke="white" stroke-width="0.6"/>`).join('');
+    }
+  }
+
+  // X labels
+  const le = n <= 7 ? 1 : n <= 14 ? 2 : n <= 30 ? 4 : 7;
+  const xLabels = filtered.map((r, i) => {
+    if (i % le !== 0 && i !== n - 1) return '';
+    const d = new Date(r.date + 'T12:00:00');
+    return `<text x="${xC(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="8" fill="var(--text-muted)">${d.getDate()} ${MON[d.getMonth()]}</text>`;
+  }).join('');
+
+  // Y labels
+  const midV = Math.round((minV + maxV) / 2);
+  const yLabels = `
+    <text x="${pad.l - 3}" y="${(pad.t + 5)}" text-anchor="end" font-size="7" fill="var(--text-muted)">${Math.round(maxV)}</text>
+    <text x="${pad.l - 3}" y="${(yV(midV) + 3).toFixed(1)}" text-anchor="end" font-size="7" fill="var(--text-muted)">${midV}</text>
+    <text x="${pad.l - 3}" y="${(pad.t + cH + 2)}" text-anchor="end" font-size="7" fill="var(--text-muted)">${Math.round(minV)}</text>`;
+
+  // Value labels on last point
+  const lastR = filtered[filtered.length - 1];
+  const lastI = n - 1;
+  const lastLabels = `
+    <text x="${(xC(lastI) - 5).toFixed(1)}" y="${(yV(lastR.systolic) - 5).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="700" fill="#E53935">${lastR.systolic}</text>
+    <text x="${(xC(lastI) - 5).toFixed(1)}" y="${(yV(lastR.diastolic) + 11).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="700" fill="#1E88E5">${lastR.diastolic}</text>`;
+
+  // Stats
+  const avgSys = Math.round(allSys.reduce((s, v) => s + v, 0) / allSys.length);
+  const avgDia = Math.round(allDia.reduce((s, v) => s + v, 0) / allDia.length);
+  const avgPulse = allPulse.length ? Math.round(allPulse.reduce((s, v) => s + v, 0) / allPulse.length) : 0;
+  const maxSys = Math.max(...allSys);
+  const minSys = Math.min(...allSys);
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;max-height:260px">
+    ${greenZone}
+    ${thresh140}
+    <line x1="${pad.l}" y1="${pad.t + cH}" x2="${pad.l + cW}" y2="${pad.t + cH}" stroke="var(--border)" stroke-width="0.5"/>
+    <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${pad.t + cH}" stroke="var(--border)" stroke-width="0.5"/>
+    ${sysLine}${sysDots}
+    ${diaLine}${diaDots}
+    ${pulseLine}${pulseDots}
+    ${xLabels}${yLabels}
+    ${lastLabels}
+  </svg>`;
+
+  return `<div class="card">
+    <h3 style="font-size:15px;font-weight:800;margin-bottom:6px">💓 Артериальное давление</h3>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
+      <span style="color:#E53935">● Систолическое</span> ·
+      <span style="color:#1E88E5">● Диастолическое</span>
+      ${allPulse.length ? ' · <span style="color:#FF9800">┈ Пульс</span>' : ''}
+      · <span style="color:#4CAF50">█</span> Норма
+    </div>
+    ${svg}
+    <div style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="text-align:center;flex:1">
+        <div style="font-size:18px;font-weight:800;color:${avgSys >= 140 ? '#E53935' : avgSys >= 120 ? '#FFA726' : '#4CAF50'}">${avgSys}/${avgDia}</div>
+        <div style="font-size:10px;color:var(--text-muted)">Среднее</div>
+      </div>
+      ${avgPulse ? `<div style="text-align:center;flex:1">
+        <div style="font-size:18px;font-weight:800;color:#FF9800">${avgPulse}</div>
+        <div style="font-size:10px;color:var(--text-muted)">Ср. пульс</div>
+      </div>` : ''}
+      <div style="text-align:center;flex:1">
+        <div style="font-size:18px;font-weight:800">${minSys}–${maxSys}</div>
+        <div style="font-size:10px;color:var(--text-muted)">Диапазон сис.</div>
+      </div>
+      <div style="text-align:center;flex:1">
+        <div style="font-size:18px;font-weight:800">${filtered.length}</div>
+        <div style="font-size:10px;color:var(--text-muted)">Замеров</div>
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderStats() {
   const all = getEntries();
   const allActs = getActivities();
@@ -4659,6 +5244,8 @@ function renderStats() {
           '</div>';
       })()}
     </div>
+
+    ${calcAge(S.birthDate) >= 18 && getBPReadings().length >= 2 ? renderBPChart(periodDays) : ''}
 
     ${renderAlcoholStatsBlock(MON)}`;
 
@@ -5033,6 +5620,10 @@ const HEALTH_GOALS = {
             good: ['рыба', 'оливковое масло', 'орехи', 'овощи', 'цельнозерновые', 'ягоды'],
             bad: ['трансжиры', 'колбаса', 'солёное', 'фастфуд'],
             tip: 'Омега-3, клетчатка и калий — лучшие друзья сердца' },
+  uric_acid: { icon: '🦴', label: 'Снижение мочевой кислоты',
+            good: ['вишня','нежирное молоко','йогурт','лимон','апельсин','клубника','кабачки','огурцы','овсянка'],
+            bad: ['субпродукты','моллюски','пиво','красное мясо','анчоусы','сардины','шпроты'],
+            tip: 'Пей 2+ литра воды, ешь вишню и цитрусовые, ограничь пурины и алкоголь' },
 };
 
 function renderRatings() {
@@ -5899,6 +6490,9 @@ function buildBackupData() {
     healthGoals: S.healthGoals || [],
     morningChecklist: getMorningChecklist(),
     alcoholCheatLog: getAlcoholCheatLog(),
+    medications: getMedications(),
+    medicationLog: getMedicationLog(),
+    bpReadings: getBPReadings(),
   };
 }
 
@@ -6063,6 +6657,26 @@ function restoreFromBackup(data) {
     const existIds = new Set(existing.map(a => a.id));
     const newItems = data.alcoholCheatLog.filter(a => !existIds.has(a.id));
     localStorage.setItem('alcohol_cheat_log', JSON.stringify([...existing, ...newItems].sort((a, b) => a.id - b.id)));
+  }
+
+  // Restore medications
+  if (data.medications && data.medications.length) {
+    saveMedications(data.medications);
+  }
+
+  // Merge medication log
+  if (data.medicationLog) {
+    const existing = getMedicationLog();
+    const merged = { ...existing, ...data.medicationLog };
+    saveMedicationLog(merged);
+  }
+
+  // Merge BP readings
+  if (data.bpReadings && data.bpReadings.length) {
+    const existing = getBPReadings();
+    const existKeys = new Set(existing.map(r => r.date + '_' + r.systolic + '_' + r.diastolic + '_' + (r.time || '')));
+    const newR = data.bpReadings.filter(r => !existKeys.has(r.date + '_' + r.systolic + '_' + r.diastolic + '_' + (r.time || '')));
+    saveBPReadings([...existing, ...newR].sort((a, b) => a.date.localeCompare(b.date)));
   }
 
   S.dailyNorms = calcDailyNorms();
